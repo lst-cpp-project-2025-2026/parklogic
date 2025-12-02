@@ -36,47 +36,11 @@ void AssetManager::UnloadTexture(const std::string &name) {
   }
 }
 
-void AssetManager::LoadSound(const std::string &name, const std::string &path) {
-  if (sounds.find(name) != sounds.end()) {
-    Logger::Warn("Sound already loaded: {}", name);
-    return;
-  }
-
-  Sound snd = ::LoadSound(path.c_str());
-  if (snd.frameCount == 0) {
-    // Check if sound loaded correctly
-  }
-
-  sounds[name] = snd;
-  Logger::Info("Loaded sound: {}", name);
-}
-
-Sound AssetManager::GetSound(const std::string &name) {
-  if (sounds.find(name) == sounds.end()) {
-    Logger::Warn("Sound not found: {}", name);
-    return {0};
-  }
-  return sounds[name];
-}
-
-void AssetManager::UnloadSound(const std::string &name) {
-  if (sounds.find(name) != sounds.end()) {
-    ::UnloadSound(sounds[name]);
-    sounds.erase(name);
-    Logger::Info("Unloaded sound: {}", name);
-  }
-}
-
 void AssetManager::UnloadAll() {
   for (auto &pair : textures) {
     ::UnloadTexture(pair.second);
   }
   textures.clear();
-
-  for (auto &pair : sounds) {
-    ::UnloadSound(pair.second);
-  }
-  sounds.clear();
 
   Logger::Info("Unloaded all assets.");
 }

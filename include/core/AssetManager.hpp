@@ -18,11 +18,6 @@ public:
   Texture2D GetTexture(const std::string &name);
   void UnloadTexture(const std::string &name);
 
-  // Audio
-  void LoadSound(const std::string &name, const std::string &path);
-  Sound GetSound(const std::string &name);
-  void UnloadSound(const std::string &name);
-
   // General
   void UnloadAll();
 
