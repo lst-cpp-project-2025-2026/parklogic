@@ -4,6 +4,7 @@
 #include <deque>
 #include <memory>
 #include <vector>
+#include <string>
 
 class World;
 
@@ -92,4 +93,5 @@ private:
    * @param wp The target waypoint.
    */
   void seek(const Waypoint& wp);
+  std::string textureName;
 };

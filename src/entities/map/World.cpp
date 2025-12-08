@@ -13,6 +13,27 @@ World::World(float width, float height) : width(width), height(height), showGrid
   AM.LoadTexture("grass3", "assets/grass3.png");
   AM.LoadTexture("grass4", "assets/grass4.png");
 
+  // Load Module Textures
+  AM.LoadTexture("road", "assets/road.png");
+  AM.LoadTexture("entrance_up", "assets/entrance_up.png");
+  AM.LoadTexture("entrance_down", "assets/entrance_down.png");
+  AM.LoadTexture("entrance_double", "assets/entrance_double.png");
+
+  AM.LoadTexture("parking_small_up", "assets/parking_small_up.png");
+  AM.LoadTexture("parking_small_down", "assets/parking_small_down.png");
+  AM.LoadTexture("parking_large_up", "assets/parking_large_up.png");
+  AM.LoadTexture("parking_large_down", "assets/parking_large_down.png");
+
+  AM.LoadTexture("charging_small_up", "assets/charging_small_up.png");
+  AM.LoadTexture("charging_small_down", "assets/charging_small_down.png");
+  AM.LoadTexture("charging_large_up", "assets/charging_large_up.png");
+  AM.LoadTexture("charging_large_down", "assets/charging_large_down.png");
+
+  // Load Car Textures
+  AM.LoadTexture("car11", "assets/car11.png");
+  AM.LoadTexture("car12", "assets/car12.png");
+  AM.LoadTexture("car13", "assets/car13.png");
+
   tileTextures = {"grass1", "grass2", "grass3", "grass4"};
 
   // Calculate Tile Size in Meters
@@ -49,7 +70,7 @@ void World::draw() {
     for (size_t x = 0; x < backgroundTiles[y].size(); ++x) {
       int tileIndex = backgroundTiles[y][x];
       Texture2D tex = AM.GetTexture(tileTextures[tileIndex]);
-      
+
       Rectangle source = {0, 0, (float)tex.width, (float)tex.height};
       Rectangle dest = {x * tileWidthMeter, y * tileHeightMeter, tileWidthMeter, tileHeightMeter};
       Vector2 origin = {0, 0};

@@ -32,7 +32,9 @@ public:
   Module* getParent() const { return parent; }
 
   // Recursive path retrieval
-  virtual std::vector<Waypoint> getPath() const;
+  std::vector<Waypoint> getPath() const;
+
+  const AttachmentPoint* getAttachmentPointByNormal(Vector2 normal) const;
 
 protected:
   float width;
@@ -72,24 +74,32 @@ public:
 
 class SmallParking : public Module {
 public:
-  SmallParking();
+  SmallParking(bool isTop);
   void draw() const override;
+private:
+  bool isTop;
 };
 
 class LargeParking : public Module {
 public:
-  LargeParking();
+  LargeParking(bool isTop);
   void draw() const override;
+private:
+  bool isTop;
 };
 
 class SmallChargingStation : public Module {
 public:
-  SmallChargingStation();
+  SmallChargingStation(bool isTop);
   void draw() const override;
+private:
+  bool isTop;
 };
 
 class LargeChargingStation : public Module {
 public:
-  LargeChargingStation();
+  LargeChargingStation(bool isTop);
   void draw() const override;
+private:
+  bool isTop;
 };

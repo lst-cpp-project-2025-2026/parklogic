@@ -4,6 +4,9 @@
 #include <memory>
 #include <vector>
 
+#include "config.hpp"
+#include "core/AssetManager.hpp"
+
 /**
  * @brief Constructs a new Car object.
  *
@@ -12,6 +15,10 @@
  */
 Car::Car(Vector2 startPos, const World *world)
     : position(startPos), velocity{0, 0}, acceleration{0, 0}, world(world), maxSpeed(15.0f), maxForce(60.0f) {
+    
+    // Pick a random texture (car11, car12, car13)
+    int type = GetRandomValue(1, 3);
+    textureName = "car1" + std::to_string(type);
 } // 15 m/s (~54 km/h), 60 m/s^2 force
 
 /**
@@ -91,9 +98,6 @@ void Car::updateWithNeighbors(double dt, const std::vector<std::unique_ptr<Car>>
 /**
  * @brief Draws the car, its velocity vector, and its current waypoints.
  */
-/**
- * @brief Draws the car, its velocity vector, and its current waypoints.
- */
 void Car::draw() {
   // Draw Waypoints and paths (in Meters)
   if (!waypoints.empty()) {
@@ -110,18 +114,27 @@ void Car::draw() {
     }
   }
 
-  // Draw Car rectangle (in Meters)
-  // Car size: 4.5m x 1.8m
-  float width = 4.5f;
-  float height = 1.8f;
+  // Draw Car
+  Texture2D tex = AssetManager::Get().GetTexture(textureName);
+  
+  // Dimensions in Meters
+  // Art pixel dimensions: 17 x 31
+  float width = 17.0f / static_cast<float>(Config::ART_PIXELS_PER_METER);
+  float height = 31.0f / static_cast<float>(Config::ART_PIXELS_PER_METER);
 
-  float rotation = atan2f(velocity.y, velocity.x) * RAD2DEG;
+  // Rotation
+  // Assets are facing UP.
+  // Game rotation 0 is RIGHT (usually 0 radians = right).
+  // atan2(y, x) returns angle relative to X axis (Right).
+  float rotation = atan2f(velocity.y, velocity.x) * RAD2DEG + 90.0f;
 
-  Rectangle carRect = {position.x, position.y, width, height};
-  // Origin is center of car
-  DrawRectanglePro(carRect, {width / 2, height / 2}, rotation, RED);
+  Rectangle source = {0, 0, (float)tex.width, (float)tex.height};
+  Rectangle dest = {position.x, position.y, width, height};
+  Vector2 origin = {width / 2.0f, height / 2.0f};
 
-  // Draw velocity vector (heading)
+  DrawTexturePro(tex, source, dest, origin, rotation, WHITE);
+
+  // Draw velocity vector (heading) for debug
   Vector2 velEnd = Vector2Add(position, Vector2Scale(velocity, 0.5f)); // Scale velocity for visualization
   DrawLineV(position, velEnd, GREEN);
 }
