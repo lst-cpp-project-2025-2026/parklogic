@@ -91,7 +91,7 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
 
     // 2. Handle Car Spawned -> Calculate Path -> Publish AssignPathEvent
     eventTokens.push_back(eventBus->subscribe<CarSpawnedEvent>([this](const CarSpawnedEvent& e) {
-        Logger::Info("TrafficSystem: Calculating path for new car...");
+        // Logger::Info("TrafficSystem: Calculating path for new car...");
         
         std::vector<Module *> facilities;
         const auto& modules = entityManager.getModules();
@@ -111,8 +111,41 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
         int idx = GetRandomValue(0, (int)facilities.size() - 1);
         Module *targetFac = facilities[idx];
 
-        // Get Path
-        std::vector<Waypoint> path = targetFac->getPath();
+        // --- New Spot-Based Pathfinding ---
+        std::vector<Waypoint> path;
+        
+        // 1. Determine Lane based on Velocity
+        Lane lane = (e.car->getVelocity().x > 0) ? Lane::DOWN : Lane::UP;
+        
+        // 2. Determine Spot
+        int spotIndex = targetFac->getRandomSpotIndex();
+        if (spotIndex == -1) {
+             Logger::Error("TrafficSystem: Facility has no spots.");
+             return;
+        }
+        Spot spot = targetFac->getSpot(spotIndex);
+
+        // 3. Construct Path
+        
+        // Waypoint 1: Road Entry (Loose Tolerance)
+        // Access Parent Road
+        Module* parentRoad = targetFac->getParent();
+        if (parentRoad) {
+            path.push_back(parentRoad->getEntryWaypoint(lane));
+        } else {
+             Logger::Error("TrafficSystem: Facility has no parent road.");
+             // Fallback to center?
+             path.push_back(targetFac->getCenterWaypoint());
+        }
+        
+        // Waypoint 2: Facility Center (Standard Tolerance)
+        path.push_back(targetFac->getCenterWaypoint());
+        
+        // Waypoint 3: Alignment Point (Alignment Tolerance)
+        path.push_back(targetFac->getAlignmentWaypoint(spot));
+        
+        // Waypoint 4: The Spot (Strict Tolerance, Stop)
+        path.push_back(targetFac->getSpotWaypoint(spot));
 
         // Publish Path Assignment
         eventBus->publish(AssignPathEvent{e.car, path});

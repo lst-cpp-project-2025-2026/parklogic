@@ -8,6 +8,17 @@ struct AttachmentPoint {
   Vector2 normal;   // Direction of attachment
 };
 
+enum class Lane { UP, DOWN };
+
+struct Spot {
+    Vector2 localPosition;
+    float orientation; // 0=Right, PI/2=Down, PI=Left, 3PI/2=Up (in radians, standard math)
+                       // Or use strict: 0=Right, 90=Down, 180=Left, 270=Up?
+                       // User said assets are facing UP. Rot 0 is RIGHT.
+                       // Let's use standard radians for steering behavior.
+    int id;
+};
+
 class Module {
 public:
   Module(float w, float h) : width(w), height(h) {}
@@ -31,16 +42,38 @@ public:
   void setParent(Module* p) { parent = p; }
   Module* getParent() const { return parent; }
 
-  // Recursive path retrieval
+  // Recursive path retrieval (Legacy/Fallback)
   std::vector<Waypoint> getPath() const;
 
   const AttachmentPoint* getAttachmentPointByNormal(Vector2 normal) const;
+
+  // --- New Pathfinding Methods ---
+  
+  // For Road Entrances: Get the specific entry point for a lane
+  virtual Waypoint getEntryWaypoint(Lane lane) const;
+
+  // For Facilities: Get a random spot index
+  int getRandomSpotIndex() const;
+
+  // For Facilities: Get the Spot data by index
+  Spot getSpot(int index) const;
+  
+  // For Facilities: Get the center waypoint (global)
+  Waypoint getCenterWaypoint() const;
+  
+  // For Facilities: Get the alignment waypoint for a specific spot (global)
+  // Distance is 8.0m in opposite direction of orientation
+  Waypoint getAlignmentWaypoint(const Spot& spot) const;
+  
+  // For Facilities: Get the strict waypoint for the spot itself (global)
+  Waypoint getSpotWaypoint(const Spot& spot) const;
 
 protected:
   float width;
   float height;
   std::vector<AttachmentPoint> attachmentPoints;
   std::vector<Waypoint> localWaypoints; // Stored relative to module top-left
+  std::vector<Spot> spots; // Parking/Charging spots
   Module* parent = nullptr;
 };
 
@@ -56,18 +89,21 @@ class UpEntranceRoad : public Module {
 public:
   UpEntranceRoad();
   void draw() const override;
+  Waypoint getEntryWaypoint(Lane lane) const override;
 };
 
 class DownEntranceRoad : public Module {
 public:
   DownEntranceRoad();
   void draw() const override;
+  Waypoint getEntryWaypoint(Lane lane) const override;
 };
 
 class DoubleEntranceRoad : public Module {
 public:
   DoubleEntranceRoad();
   void draw() const override;
+  Waypoint getEntryWaypoint(Lane lane) const override;
 };
 
 // --- Facilities ---

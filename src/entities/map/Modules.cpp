@@ -69,6 +69,66 @@ const AttachmentPoint *Module::getAttachmentPointByNormal(Vector2 normal) const 
   return nullptr;
 }
 
+// --- New Pathfinding Implementation ---
+
+Waypoint Module::getEntryWaypoint(Lane lane) const {
+    // Default implementation returns the first waypoint (center), ignoring lane
+    // This should be overridden by EntranceRoads
+     if (!localWaypoints.empty()) {
+        const auto& lwp = localWaypoints[0];
+         return Waypoint(Vector2Add(worldPosition, lwp.position), 2.0f, lwp.id, lwp.entryAngle, false);
+    }
+    return Waypoint(worldPosition);
+}
+
+int Module::getRandomSpotIndex() const {
+    if (spots.empty()) return -1;
+    return GetRandomValue(0, (int)spots.size() - 1);
+}
+
+Spot Module::getSpot(int index) const {
+    if (index >= 0 && index < (int)spots.size()) {
+        return spots[index];
+    }
+    return {{0,0}, 0};
+}
+
+Waypoint Module::getCenterWaypoint() const {
+    // Typically the first local waypoint added is the center/main one
+    if (!localWaypoints.empty()) {
+        const auto& lwp = localWaypoints[0];
+         // Standard tolerance for center point
+        return Waypoint(Vector2Add(worldPosition, lwp.position), 1.0f, lwp.id, lwp.entryAngle, false); 
+    }
+    return Waypoint(Vector2Add(worldPosition, {width/2, height/2}));
+}
+
+Waypoint Module::getAlignmentWaypoint(const Spot& spot) const {
+    // Global Spot Position
+    Vector2 spotGlobal = Vector2Add(worldPosition, spot.localPosition);
+    
+    // We want a point 8 meters *opposite* to the orientation
+    // Orientation is where the car *enters*, so we back up from there.
+    // If orientation is LEFT (PI), opposite is RIGHT (0).
+    // So we add vector in direction (orientation + PI).
+    
+    float backAngle = spot.orientation + PI; // Opposite direction
+    float dist = 8.0f; 
+    
+    Vector2 offset = { cosf(backAngle) * dist, sinf(backAngle) * dist };
+    Vector2 alignPos = Vector2Add(spotGlobal, offset);
+    
+    // Tolerance can be loose? No, we want to hit this to align. 
+    // Let's say 1.0m
+    return Waypoint(alignPos, 1.0f);
+}
+
+Waypoint Module::getSpotWaypoint(const Spot& spot) const {
+   Vector2 spotGlobal = Vector2Add(worldPosition, spot.localPosition);
+   // Strict tolerance (0.2m?) and StopAtEnd = true
+   return Waypoint(spotGlobal, 0.2f, spot.id, spot.orientation, true);
+}
+
 // --- Roads ---
 // normal road : left (0 78) right (283 78) size (283 155)
 
@@ -118,6 +178,15 @@ void UpEntranceRoad::draw() const {
   Module::draw();
 }
 
+Waypoint UpEntranceRoad::getEntryWaypoint(Lane lane) const {
+    float xCenter = P2M(142);
+    float yOffset = (lane == Lane::DOWN) ? P2M(Config::LANE_OFFSET_DOWN) : P2M(Config::LANE_OFFSET_UP); 
+    // Lane::DOWN = 94 (Traffic going Right), Lane::UP = 61 (Traffic going Left)
+    
+    // Loose tolerance (e.g. 2.5m)
+    return Waypoint(Vector2Add(worldPosition, {xCenter, yOffset}), 2.5f);
+}
+
 // down entrance road : left (0 78) right (283 78) down(142 155) size (284 155)
 DownEntranceRoad::DownEntranceRoad() : Module(P2M(284), P2M(155)) {
     float yCenter = P2M(78);
@@ -136,6 +205,12 @@ void DownEntranceRoad::draw() const {
   Rectangle dest = {worldPosition.x, worldPosition.y, width, height};
   DrawTexturePro(tex, source, dest, {0, 0}, 0.0f, WHITE);
   Module::draw();
+}
+
+Waypoint DownEntranceRoad::getEntryWaypoint(Lane lane) const {
+    float xCenter = P2M(142);
+    float yOffset = (lane == Lane::DOWN) ? P2M(Config::LANE_OFFSET_DOWN) : P2M(Config::LANE_OFFSET_UP);
+    return Waypoint(Vector2Add(worldPosition, {xCenter, yOffset}), 2.5f);
 }
 
 // double entrance road : left (0 78) right (283 78) up(142 0) down(142 155) size (284 155)
@@ -159,6 +234,12 @@ void DoubleEntranceRoad::draw() const {
   Module::draw();
 }
 
+Waypoint DoubleEntranceRoad::getEntryWaypoint(Lane lane) const {
+    float xCenter = P2M(142);
+    float yOffset = (lane == Lane::DOWN) ? P2M(Config::LANE_OFFSET_DOWN) : P2M(Config::LANE_OFFSET_UP);
+    return Waypoint(Vector2Add(worldPosition, {xCenter, yOffset}), 2.5f);
+}
+
 // --- Facilities ---
 
 /*
@@ -168,16 +249,36 @@ small parking down : 218 0 (274*330)
 
 SmallParking::SmallParking(bool isTop) : Module(P2M(274), P2M(330)), isTop(isTop) {
   if (isTop) {
-      // Connects to an Up entrance (so its entrance handles "Down" normal from itself)
-      // "up" (for those below means that they will connect to an up (or double) entrance, ie their entrance is pointing down)
-      // Point: 218 330
-      // Attachment Normal: (0, 1) - pointing down
       attachmentPoints.push_back({{P2M(218), height}, {0, 1}});
+      
+      // Small Parking UP
+      // 5 spots Left oriented (x=37)
+      // Ys: 236, 199, 163, 127, 91
+      float xLeft = P2M(37);
+      float ysLeft[] = {236, 199, 163, 127, 91};
+      for(float y : ysLeft) spots.push_back({{xLeft, P2M(y)}, PI, 0}); // Angle PI = LEFT
+      
+      // 5 spots Up oriented (y=38)
+      // Xs: 90, 126, 162, 198, 234
+      float yUp = P2M(38);
+      float xsUp[] = {90, 126, 162, 198, 234};
+      for(float x : xsUp) spots.push_back({{P2M(x), yUp}, 3*PI/2, 0}); // Angle 3PI/2 = UP
+
   } else {
-      // Connects to a Down entrance (so its entrance handles "Up" normal from itself)
-      // Point: 218 0
-      // Attachment Normal: (0, -1) - pointing up
       attachmentPoints.push_back({{P2M(218), 0}, {0, -1}});
+      
+      // Small Parking DOWN
+      // 5 spots Left oriented (x=37)
+      // Ys: 94, 131, 167, 203, 239
+      float xLeft = P2M(37);
+      float ysLeft[] = {94, 131, 167, 203, 239};
+      for(float y : ysLeft) spots.push_back({{xLeft, P2M(y)}, PI, 0}); // Angle PI = LEFT
+
+      // 5 spots Down oriented (y=292)
+      // Xs: 90, 126, 162, 198, 234
+      float yDown = P2M(292);
+      float xsDown[] = {90, 126, 162, 198, 234};
+      for(float x : xsDown) spots.push_back({{P2M(x), yDown}, PI/2, 0}); // Angle PI/2 = DOWN
   }
   addWaypoint({P2M(218), height / 2.0f});
 }
@@ -198,8 +299,40 @@ large parking down : 218 0 (436*363)
 LargeParking::LargeParking(bool isTop) : Module(P2M(436), P2M(363)), isTop(isTop) {
   if (isTop) {
       attachmentPoints.push_back({{P2M(218), height}, {0, 1}});
+      
+      // Large Parking UP
+      // 6 Left (x=38)
+      float xLeft = P2M(38);
+      float ysLeft[] = {269, 233, 197, 161, 125, 89};
+      for(float y : ysLeft) spots.push_back({{xLeft, P2M(y)}, PI, 0});
+
+      // 6 Right (x=389)
+      float xRight = P2M(389);
+      // Same Ys as left
+      for(float y : ysLeft) spots.push_back({{xRight, P2M(y)}, 0.0f, 0}); // Angle 0 = RIGHT
+
+      // 8 Up (y=38)
+      float yUp = P2M(38);
+      float xsUp[] = {92, 128, 164, 200, 236, 272, 308, 344};
+      for(float x : xsUp) spots.push_back({{P2M(x), yUp}, 3*PI/2, 0});
+
   } else {
       attachmentPoints.push_back({{P2M(218), 0}, {0, -1}});
+      
+      // Large Parking DOWN
+      // 6 Left (x=38)
+      float xLeft = P2M(38);
+      float ysLeft[] = {94, 130, 166, 202, 238, 274};
+      for(float y : ysLeft) spots.push_back({{xLeft, P2M(y)}, PI, 0});
+      
+      // 6 Right (x=389)
+      float xRight = P2M(389);
+      for(float y : ysLeft) spots.push_back({{xRight, P2M(y)}, 0.0f, 0});
+
+      // 8 Down (y=325)
+      float yDown = P2M(325);
+      float xsDown[] = {92, 128, 164, 200, 236, 272, 308, 344};
+      for(float x : xsDown) spots.push_back({{P2M(x), yDown}, PI/2, 0});
   }
   addWaypoint({P2M(218), height / 2.0f});
 }
@@ -221,8 +354,21 @@ small charging down : 163 0 (219*168)
 SmallChargingStation::SmallChargingStation(bool isTop) : Module(P2M(219), P2M(168)), isTop(isTop) {
    if (isTop) {
       attachmentPoints.push_back({{P2M(163), height}, {0, 1}});
+      
+      // Small Charging UP
+      // 5 Up (y=38)
+      float yUp = P2M(38);
+      float xsUp[] = {38, 73, 109, 145, 181};
+      for(float x : xsUp) spots.push_back({{P2M(x), yUp}, 3*PI/2, 0});
+
   } else {
       attachmentPoints.push_back({{P2M(163), 0}, {0, -1}});
+      
+      // Small Charging DOWN
+      // 5 Down (y=130)
+      float yDown = P2M(130);
+      float xsDown[] = {38, 73, 109, 145, 181};
+      for(float x : xsDown) spots.push_back({{P2M(x), yDown}, PI/2, 0});
   }
   addWaypoint({P2M(163), height / 2.0f});
 }
@@ -243,8 +389,25 @@ large charging down : 218 0 (274*330)
 LargeChargingStation::LargeChargingStation(bool isTop) : Module(P2M(274), P2M(330)), isTop(isTop) {
    if (isTop) {
       attachmentPoints.push_back({{P2M(218), height}, {0, 1}});
+      // Same layout as Small Parking UP
+      float xLeft = P2M(37);
+      float ysLeft[] = {236, 199, 163, 127, 91};
+      for(float y : ysLeft) spots.push_back({{xLeft, P2M(y)}, PI, 0});
+      
+      float yUp = P2M(38);
+      float xsUp[] = {90, 126, 162, 198, 234};
+      for(float x : xsUp) spots.push_back({{P2M(x), yUp}, 3*PI/2, 0});
+
   } else {
       attachmentPoints.push_back({{P2M(218), 0}, {0, -1}});
+      // Same layout as Small Parking DOWN
+      float xLeft = P2M(37);
+      float ysLeft[] = {94, 131, 167, 203, 239};
+      for(float y : ysLeft) spots.push_back({{xLeft, P2M(y)}, PI, 0});
+
+      float yDown = P2M(292);
+      float xsDown[] = {90, 126, 162, 198, 234};
+      for(float x : xsDown) spots.push_back({{P2M(x), yDown}, PI/2, 0});
   }
   addWaypoint({P2M(218), height / 2.0f});
 }
