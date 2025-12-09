@@ -1,3 +1,46 @@
+spot data of facilities (each spot has coordinate and an orientation)
+a spot is oriented in a direction means to enter it you must be heading in that direction, ie a spot is oriented up means to enter i should be going/facing up
+
+charging_large_down and small_parking_down :
+this has five spots oriented left and five oriented down
+the five oriented left all have the same x
+x = 37 art pixels
+(x,94)
+(x,131)
+(x,167)
+(x,203)
+(x,239)
+
+the five oriented down have the same y
+y= 292 art pixels
+(90,y)
+(126,y)
+(162,y)
+(198,y)
+(234,y)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+--------------------------------------------------------------------------------
 here are the attachement points in pixel art units relative to top left corner
 
 ("up" here means that the entrance where the other modules will connect is pointing up)
@@ -19,3 +62,6 @@ large charging up : 218 330 (274*330)
 large charging down : 218 0 (274*330)
 ---
 the car assets all have the front of the car pointing up, all cars, from (car11.png to car23.png) are 17*31
+
+lanes: down lane (94 pixels down from the top of the road)
+up lane (61 pixels down from the top of the road)

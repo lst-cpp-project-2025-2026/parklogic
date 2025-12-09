@@ -13,8 +13,8 @@
  * @param startPos The initial position of the car (in meters).
  * @param world Pointer to the world environment for boundary checking.
  */
-Car::Car(Vector2 startPos, const World *world)
-    : position(startPos), velocity{0, 0}, acceleration{0, 0}, world(world), maxSpeed(15.0f), maxForce(60.0f) {
+Car::Car(Vector2 startPos, const World *world, Vector2 initialVelocity)
+    : position(startPos), velocity(initialVelocity), acceleration{0, 0}, world(world), maxSpeed(15.0f), maxForce(60.0f) {
     
     // Pick a random texture (car11, car12, car13)
     int type = GetRandomValue(1, 3);

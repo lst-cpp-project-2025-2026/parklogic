@@ -78,8 +78,11 @@ void World::draw() {
       DrawTexturePro(tex, source, dest, origin, 0.0f, WHITE);
     }
   }
+}
 
+void World::drawOverlay() {
   // Draw World Boundary (in Meters)
+  // User wanted this over everything
   DrawRectangleLinesEx({0, 0, width, height}, 0.1f, BLACK);
 
   // Draw Grid
@@ -94,4 +97,26 @@ void World::draw() {
       DrawLineV({0, y}, {width, y}, Fade(LIGHTGRAY, 0.3f));
     }
   }
+}
+
+void World::drawMask() {
+  // Draw 4 rectangles to cover everything outside [0, 0, width, height]
+  // Color: Dark Gray/Black
+  Color maskColor = {20, 20, 20, 255};
+
+  // We want to cover a large area.
+  // Let's assume a safe large margin, e.g. 10000 meters.
+  float hugeMargin = 10000.0f;
+
+  // Top
+  DrawRectangleRec({-hugeMargin, -hugeMargin, width + 2 * hugeMargin, hugeMargin}, maskColor);
+  
+  // Bottom
+  DrawRectangleRec({-hugeMargin, height, width + 2 * hugeMargin, hugeMargin}, maskColor);
+  
+  // Left
+  DrawRectangleRec({-hugeMargin, 0, hugeMargin, height}, maskColor);
+  
+  // Right
+  DrawRectangleRec({width, 0, hugeMargin, height}, maskColor);
 }

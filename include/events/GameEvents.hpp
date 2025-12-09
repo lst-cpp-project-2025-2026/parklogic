@@ -53,6 +53,7 @@ struct SpawnCarRequestEvent {};
 
 struct CreateCarEvent {
     Vector2 position;
+    Vector2 velocity; // Initial velocity (sets heading)
 };
 
 struct CarSpawnedEvent {

@@ -25,7 +25,7 @@ public:
    * @param startPos Initial position.
    * @param world Pointer to the game world for bounds checking.
    */
-  Car(Vector2 startPos, const World *world);
+  Car(Vector2 startPos, const class World *world, Vector2 initialVelocity = {0, 0});
 
   /**
    * @brief Updates the car's physics and logic.

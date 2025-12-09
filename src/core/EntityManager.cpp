@@ -37,7 +37,7 @@ EntityManager::EntityManager(std::shared_ptr<EventBus> bus) : eventBus(bus) {
     eventTokens.push_back(eventBus->subscribe<CreateCarEvent>([this](const CreateCarEvent& e) {
         if (!world) return;
         
-        auto car = std::make_unique<Car>(e.position, world.get());
+        auto car = std::make_unique<Car>(e.position, world.get(), e.velocity);
         Car *carPtr = car.get();
         this->addCar(std::move(car));
 
@@ -82,6 +82,12 @@ void EntityManager::draw() {
     
     for (const auto& car : cars) {
         car->draw();
+    }
+    
+    // Draw Mask last (Foreground)
+    if (world) {
+        world->drawOverlay();
+        world->drawMask();
     }
 }
 

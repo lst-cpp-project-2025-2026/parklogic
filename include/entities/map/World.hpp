@@ -17,10 +17,13 @@ public:
 
   void update(double dt) override;
   void draw() override;
+  void drawOverlay(); // Draws grid and borders on top of entities
 
   void setGridEnabled(bool enabled) { showGrid = enabled; }
   bool isGridEnabled() const { return showGrid; }
   void toggleGrid() { showGrid = !showGrid; }
+
+  void drawMask(); // Draws the dark foreground mask outside the world
 
   float getWidth() const { return width; }
   float getHeight() const { return height; }

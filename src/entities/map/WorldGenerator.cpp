@@ -95,6 +95,7 @@ GeneratedMap WorldGenerator::generate(const MapConfig& config) {
   }
 
   // Placement Logic
+  // Placement Logic
   float currentX = 0.0f;
   float startY = 50.0f;   // Middle of map (arbitrary start)
   float safeX = -1000.0f; // Rightmost edge of occupied space (for collision prevention)
@@ -128,10 +129,10 @@ GeneratedMap WorldGenerator::generate(const MapConfig& config) {
       modules.push_back(std::move(road));
   };
   
-    // Add initial padding roads
-    for (int i = 0; i < 3; ++i) {
-        placePaddingRoad(currentX, startY);
-    }
+    // Add initial padding roads - REMOVED per user request for ZERO padding
+    // for (int i = 0; i < 3; ++i) {
+    //     placePaddingRoad(currentX, startY);
+    // }
     safeX = currentX;
 
   for (auto &unit : plan) {
@@ -294,7 +295,7 @@ GeneratedMap WorldGenerator::generate(const MapConfig& config) {
   float tileWidthMeter = static_cast<float>(Config::BACKGROUND_TILE_SIZE) / static_cast<float>(Config::ART_PIXELS_PER_METER);
 
   // We want the padding to be a multiple of tile size
-  float padding = tileWidthMeter * 5.0f; // 5 tiles of padding
+  float padding = 0.0f; // User requested zero padding on x axis
 
   float contentWidth = maxX - minX;
   float contentHeight = maxY - minY;
@@ -307,21 +308,91 @@ GeneratedMap WorldGenerator::generate(const MapConfig& config) {
 
   // Ensure total world size covers content + padding
   float worldWidthRaw = contentWidth + 2 * padding;
-  float worldHeightRaw = contentHeight + 2 * padding;
+  float worldheightPadding = tileWidthMeter * 5.0f; // Still keep extensive Y padding? User only mentioned X.
+  // Let's assume user wants tight X fit but some Y padding is still okay, or maybe tight everywhere.
+  // "padding between the road and the world border in the x axis should be zero"
+  // Let's keep Y padding for now to avoid facilities touching top/bottom hard edges.
+  
+  float worldHeightRaw = contentHeight + 2 * worldheightPadding;
 
   // Round up world dimensions to next tile multiple just to be safe/clean
   float worldWidth = std::ceil(worldWidthRaw / tileWidthMeter) * tileWidthMeter;
   float worldHeight = std::ceil(worldHeightRaw / tileWidthMeter) * tileWidthMeter;
 
-  // Shift modules to center (which means starting at padding)
-  // We want minX to be at 'padding', minY to be at 'padding'
+  // Shift modules to center vertically, but left-aligned horizontally (padding=0)
+  // We want minX to be at 0 (or padding=0).
+  // We want minY to be at worldheightPadding.
   float offsetX = padding - minX;
-  float offsetY = padding - minY;
+  float offsetY = worldheightPadding - minY;
 
   for (auto &mod : modules) {
     mod->worldPosition.x += offsetX;
     mod->worldPosition.y += offsetY;
   }
+  
+  // Update startY for the external road placement
+  float finalRoadY = startY + offsetY;
+
+  // --- External Road ---
+  // Place an extra road module outside the world (X < 0) where cars spawn.
+  auto externalRoad = std::make_unique<NormalRoad>();
+  
+  // It should attach to the start of the map (which is now at X=0, Y=finalRoadY usually)
+  // Actually, the first road starts at X=0 + its internal offset maybe.
+  // Let's look at the first module. If it's a road, we attach to its Left.
+  // If modules[0] is not necessarily the first road...
+  // However, we shifted minX to 0. So the leftmost extent is 0.
+  // If the first road has its left attachment at local (0, 11), then world pos is (0, ...).
+  // We want the external road's Right attachment to connect to (0, finalRoadY).
+  // Wait, the "spine" Y is finalRoadY.
+  
+  // Let's simplified placement:
+  // External Road Right Attach -> World (0, finalRoadY)
+  // External Road WorldPos = (0, finalRoadY) - RightAttach.Pos
+  
+  const auto* extRight = externalRoad->getAttachmentPointByNormal({1, 0});
+  if (extRight) {
+      externalRoad->worldPosition = { -extRight->position.x, finalRoadY - extRight->position.y };
+  } else {
+       // Fallback
+      externalRoad->worldPosition = { -externalRoad->getWidth(), finalRoadY };
+  }
+  
+  modules.push_back(std::move(externalRoad));
+
+  // --- External Road (Right Side) ---
+  // Place an extra road module outside the world (X > Width)
+  // We need to attach to the end of the map (maxX)
+  
+  // Find current rightmost X (should be modules max X)
+  // We can calculate it again or use currentX if it tracks properly.
+  // Modules have been shifted, so we need to find the rightmost extent again.
+  float safeRightX = -std::numeric_limits<float>::max();
+  const Module* rightMostMod = nullptr;
+  
+  for(const auto& mod : modules) {
+      float rX = mod->worldPosition.x + mod->getWidth();
+      if(rX > safeRightX) {
+          safeRightX = rX;
+          rightMostMod = mod.get();
+      }
+  }
+  
+  auto externalRoadRight = std::make_unique<NormalRoad>();
+  
+  // Attach Left of External Road to Right of Map
+  // Map End X = safeRightX
+  // External Road World Pos = (safeRightX, finalRoadY) - LeftAttach.Pos
+  // Verify vertical alignment: road spine is at finalRoadY.
+  
+  const auto* extLeft = externalRoadRight->getAttachmentPointByNormal({-1, 0});
+  if (extLeft) {
+      externalRoadRight->worldPosition = { safeRightX - extLeft->position.x, finalRoadY - extLeft->position.y };
+  } else {
+      externalRoadRight->worldPosition = { safeRightX, finalRoadY };
+  }
+  
+  modules.push_back(std::move(externalRoadRight));
 
   auto world = std::make_unique<World>(worldWidth, worldHeight);
 
