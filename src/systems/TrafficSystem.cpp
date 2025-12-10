@@ -5,6 +5,8 @@
 #include "entities/map/Modules.hpp"
 #include "config.hpp" // Added for lane offsets
 
+#include "entities/Car.hpp" // Added include
+
 TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager& em) 
     : eventBus(bus), entityManager(em) {
     
@@ -59,9 +61,6 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
 
         if (spawnLeft) {
             // Spawn Left -> Drive Right
-            // Lane: Down Lane (offset 94)
-            // Pos: Leftmost Road Start X, Y + Offset
-            
             float laneOffset = (float)Config::LANE_OFFSET_DOWN / pixelsPerMeter;
             
             // Note: road->worldPosition is Top-Left of the module in World Coordinates.
@@ -75,9 +74,6 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
 
         } else {
             // Spawn Right -> Drive Left
-            // Lane: Up Lane (offset 61)
-            // Pos: Rightmost Road End X, Y + Offset
-            
             float laneOffset = (float)Config::LANE_OFFSET_UP / pixelsPerMeter;
             
             spawnPos.x = rightRoad->worldPosition.x + rightRoad->getWidth();
@@ -124,9 +120,100 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
 
         // 2. Generate Path
         std::vector<Waypoint> path = PathPlanner::GeneratePath(e.car, targetFac, spot);
+        
+        // Store context in Car so it knows where it is when it wants to leave
+        e.car->setParkingContext(targetFac, spot);
 
         // Publish Path Assignment
         eventBus->publish(AssignPathEvent{e.car, path});
+    }));
+    
+    // 3. Handle Game Update -> Check for Cars Ready to Leave AND Remove Exited Cars
+    eventTokens.push_back(eventBus->subscribe<GameUpdateEvent>([this](const GameUpdateEvent& e) {
+        // We use getCars() directly
+        const auto& cars = entityManager.getCars();
+        
+        // List of cars to remove (pointers)
+        std::vector<Car*> carsToRemove;
+        
+        // Calculate World Road Boundaries (in Meters)
+        // We do this every frame, but ideally it should be cached or calculated once.
+        // For now, it's fast enough.
+        float minRoadX = std::numeric_limits<float>::max();
+        float maxRoadX = std::numeric_limits<float>::lowest();
+        
+        const auto& modules = entityManager.getModules();
+        for (const auto &mod : modules) {
+             if (auto *r = dynamic_cast<NormalRoad *>(mod.get())) {
+                 // Road X and Width are in Meters!
+                 float x = r->worldPosition.x;
+                 float w = r->getWidth();
+                 if (x < minRoadX) minRoadX = x;
+                 if (x + w > maxRoadX) maxRoadX = x + w;
+            }
+        }
+        
+        // If no roads, defaults
+        if (minRoadX == std::numeric_limits<float>::max()) minRoadX = 0;
+        if (maxRoadX == std::numeric_limits<float>::lowest()) maxRoadX = 100;
+        
+        for (const auto& carPtr : cars) {
+            Car* car = carPtr.get();
+            if (!car) continue;
+
+            // Check if ready to leave parking
+            if (car->isReadyToLeave()) {
+                Logger::Info("TrafficSystem: Car finished parking. Generating exit path...");
+                
+                // 1. Context
+                const Module* currentFac = car->getParkedFacility();
+                Spot currentSpot = car->getParkedSpot();
+                
+                if (!currentFac) {
+                     car->setState(Car::CarState::DRIVING); 
+                     continue;
+                }
+                
+                // 2. Decide Direction
+                bool exitRight = (GetRandomValue(0, 1) == 1);
+                
+                // 3. Determine Final Destination X
+                // Drive OFF screen.
+                // If exiting Right, go to maxRoadX + 2.0m
+                // If exiting Left, go to minRoadX - 2.0m (start of road is minX)
+                float finalX = exitRight ? (maxRoadX + 2.0f) : (minRoadX - 2.0f);
+                
+                // 4. Generate Path
+                std::vector<Waypoint> path = PathPlanner::GenerateExitPath(car, currentFac, currentSpot, exitRight, finalX);
+                
+                // 5. Assign
+                car->setPath(path);
+                car->setState(Car::CarState::EXITING);
+                Logger::Info("TrafficSystem: Exit path assigned. Exiting {}", exitRight ? "RIGHT" : "LEFT");
+            }
+            
+            // Check if finished exiting
+            if (car->getState() == Car::CarState::EXITING && car->hasArrived()) {
+                // Car has reached the end of the exit path (off-screen)
+                carsToRemove.push_back(car);
+                Logger::Info("TrafficSystem: Car has left the world. Despawning...");
+            }
+        }
+        
+        // Remove cars
+        for (Car* c : carsToRemove) {
+            // Need a const_cast or entityManager needs to accept Car* (it does)
+            // But entityManager is const in this lambda context?
+            // Member variable: const EntityManager& entityManager
+            // We need a non-const EntityManager to remove.
+            // The constructor takes `const EntityManager& em`.
+            // Use const_cast or fix the design?
+            // Fix design: EntityManager shouldn't be const if we modify it.
+            // TrafficSystem owns eventBus but only has reference to EM.
+            // Actually, TrafficSystem is a system. It should modify components.
+            // We should cast away constness for now as we know it's the main EM.
+            const_cast<EntityManager&>(entityManager).removeCar(c);
+        }
     }));
 }
 

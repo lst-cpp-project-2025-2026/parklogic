@@ -16,6 +16,13 @@ public:
      */
     static std::vector<Waypoint> GeneratePath(const Car* car, const Module* targetFac, const Spot& targetSpot);
 
+    /**
+     * @brief Constructs a path for a car to leave the facility and map.
+     * @param finalX The X coordinate (in Meters) where the car should exit the map.
+     */
+    static std::vector<Waypoint> GenerateExitPath(const Car* car, const Module* currentFac, const Spot& currentSpot, bool exitRight, float finalX);
+
+
 private:
     /**
      * @brief Calculates the entry waypoint on the road leading to the facility.

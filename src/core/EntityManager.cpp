@@ -108,3 +108,10 @@ void EntityManager::clear() {
     modules.clear();
     world.reset();
 }
+
+void EntityManager::removeCar(Car* car) {
+    if (!car) return;
+    std::erase_if(cars, [car](const std::unique_ptr<Car>& ptr) {
+        return ptr.get() == car;
+    });
+}

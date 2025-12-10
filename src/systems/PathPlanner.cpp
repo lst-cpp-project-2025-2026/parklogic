@@ -123,3 +123,54 @@ Waypoint PathPlanner::CalculateSpotPoint(const Module* facility, const Spot& spo
     // Final destination: High precision required (0.2m tolerance), Stop at End = true.
     return Waypoint(spotGlobal, 0.2f, spot.id, spot.orientation, true);
 }
+
+std::vector<Waypoint> PathPlanner::GenerateExitPath(const Car* car, const Module* currentFac, const Spot& currentSpot, bool exitRight, float finalX) {
+    std::vector<Waypoint> path;
+    
+    // 1. Waypoint 1: Alignment Point (Reverse)
+    // Car backs out/aligns to this point first.
+    path.push_back(CalculateAlignmentPoint(currentFac, currentSpot));
+    
+    // 2. Waypoint 2: Facility Exit Point
+    // Logic:
+    // UP Facility: Enters Right, Exits Left.
+    // DOWN Facility: Enters Left, Exits Right.
+    bool isUpFac = currentFac->isUp();
+    bool useRightSideExit = !isUpFac; // Up -> Left (false), Down -> Right (true)
+    
+    path.push_back(CalculateFacilityEntry(currentFac, useRightSideExit));
+    
+    // 3. Waypoint 3: Road Entry/Exit Point
+    // Logic:
+    // Exiting Right -> Drive in Down Lane -> Connector is Right Side (+18)
+    // Exiting Left  -> Drive in Up Lane   -> Connector is Left Side (-18)
+    
+    Module* parentRoad = currentFac->getParent();
+    if (parentRoad) {
+        Lane exitLane = exitRight ? Lane::DOWN : Lane::UP;
+        
+        // If exiting Right (Down Lane), we need to hit the Right connector (+18)
+        // If exiting Left (Up Lane), we need to hit the Left connector (-18)
+        bool roadConnectorSide = exitRight; 
+        
+        path.push_back(CalculateRoadEntry(parentRoad, exitLane, roadConnectorSide));
+    }
+    
+    // 4. Waypoint 4: Map Edge Exit (Out of world)
+    float yPos = 0.0f;
+    if (parentRoad) {
+        float laneOffset = (exitRight) ? P2M(Config::LANE_OFFSET_DOWN) : P2M(Config::LANE_OFFSET_UP);
+        yPos = parentRoad->worldPosition.y + laneOffset;
+    } else {
+        // Fallback
+        yPos = car->getPosition().y; 
+    }
+    
+    // finalX is in Meters (passed from TrafficSystem)
+    float xPos = finalX;
+    
+    // Stop at the map edge (or beyond)
+    path.push_back(Waypoint({xPos, yPos}, 1.0f, -1, 0.0f, true));
+    
+    return path;
+}

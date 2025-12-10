@@ -16,6 +16,7 @@ class World;
  * It supports collision avoidance and dynamic waypoint generation.
  */
 #include "entities/map/Waypoint.hpp"
+#include "entities/map/Modules.hpp"
 
 class Car : public Entity {
 public:
@@ -35,7 +36,7 @@ public:
   void update(double dt) override;
 
   /**
-   * @brief Updates the car with awareness of other cars.
+   * @brief Updates the car's state with awareness of other cars.
    *
    * @param dt Delta time in seconds.
    * @param cars Pointer to the list of other cars for collision avoidance.
@@ -46,6 +47,17 @@ public:
    * @brief Draws the car and its debug info (waypoints, velocity).
    */
   void draw() override;
+
+  // --- State Management ---
+  enum class CarState {
+      DRIVING,
+      ALIGNING,
+      PARKED,
+      EXITING
+  };
+
+  CarState getState() const { return state; }
+  void setState(CarState newState) { state = newState; }
 
   /**
    * @brief Adds a waypoint to the car's path.
@@ -68,12 +80,31 @@ public:
 
   Vector2 getPosition() const { return position; }
   Vector2 getVelocity() const { return velocity; }
+  void setVelocity(Vector2 v) { velocity = v; }
+
+  bool isReadyToLeave() const { return state == CarState::PARKED && parkingTimer <= 0.0f; }
+  
+  bool hasArrived() const { return waypoints.empty(); }
+
+  // Context for Parking
+  // Used to generate the exit path.
+  void setParkingContext(const Module* fac, const Spot& spot);
+  const Module* getParkedFacility() const { return parkedFacility; }
+  const Spot& getParkedSpot() const { return parkedSpot; }
 
 private:
   Vector2 position;
   Vector2 velocity;
   Vector2 acceleration;
   const World *world;
+  
+  CarState state = CarState::DRIVING;
+  float parkingTimer = 0.0f;
+  float targetRotation = 0.0f; 
+  float currentRotation = 0.0f; // degrees, for smooth rendering
+  
+  const Module* parkedFacility = nullptr;
+  Spot parkedSpot = {{0,0}, 0.0f, -1}; 
 
   float maxSpeed;
   float maxForce;

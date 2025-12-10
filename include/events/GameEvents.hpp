@@ -64,3 +64,11 @@ struct AssignPathEvent {
     class Car* car;
     std::vector<struct Waypoint> path;
 };
+
+struct CarFinishedParkingEvent {
+    class Car* car;
+};
+
+struct CarDespawnEvent {
+    class Car* car;
+};

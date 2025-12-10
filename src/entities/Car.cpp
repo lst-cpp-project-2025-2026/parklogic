@@ -19,7 +19,17 @@ Car::Car(Vector2 startPos, const World *world, Vector2 initialVelocity)
     // Pick a random texture (car11, car12, car13)
     int type = GetRandomValue(1, 3);
     textureName = "car1" + std::to_string(type);
+    
+    // Initialize rotation
+    if (Vector2Length(velocity) > 0.1f) {
+        currentRotation = atan2f(velocity.y, velocity.x) * RAD2DEG + 90.0f;
+    }
 } // 15 m/s (~54 km/h), 60 m/s^2 force
+
+void Car::setParkingContext(const Module* fac, const Spot& spot) {
+    parkedFacility = fac;
+    parkedSpot = spot;
+}
 
 /**
  * @brief Updates the car's state based on time elapsed, without considering neighbors.
@@ -28,68 +38,131 @@ Car::Car(Vector2 startPos, const World *world, Vector2 initialVelocity)
  */
 void Car::update(double dt) { updateWithNeighbors(dt, nullptr); }
 
+// In Car.cpp
+
 /**
- * @brief Updates the car's state, including steering, physics, and collision avoidance.
+ * @brief Updates the car's state with awareness of other cars.
  *
- * @param dt Time elapsed since the last update.
- * @param cars A pointer to the list of all cars in the scene, used for collision avoidance (can be nullptr).
+ * @param dt Delta time in seconds.
+ * @param cars Pointer to the list of other cars for collision avoidance.
  */
 void Car::updateWithNeighbors(double dt, const std::vector<std::unique_ptr<Car>> *cars) {
+  // If we are finished exiting (reached map edge or end of path), dispatch should handle cleanup.
+  // But here we just check if path is complete.
+  
+  if (state == CarState::PARKED) {
+      parkingTimer -= (float)dt;
+      return; 
+  }
+
   // --- Steering Behavior (Seek) ---
   if (!waypoints.empty()) {
     Waypoint &currentWp = waypoints.front();
-    // Vector2 target = currentWp.position;
     seek(currentWp);
 
     // Check if reached (using waypoint's tolerance)
     if (Vector2Distance(position, currentWp.position) < currentWp.tolerance) {
+      
+      // If we reached the last waypoint
+      if (waypoints.size() == 1) {
+          // Check if this was a parking spot (Stop at end)
+          if (currentWp.stopAtEnd && state == CarState::DRIVING) {
+              // We arrived at spot.
+              velocity = {0,0};
+              acceleration = {0,0};
+              state = CarState::ALIGNING;
+              targetRotation = currentWp.entryAngle; // The spot's orientation
+          } else if (state == CarState::EXITING) {
+              // Reached exit point (Map edge)
+              // The TrafficSystem should likely handle despawn, but we can flag it?
+              // For now, just stop.
+              velocity = {0,0};
+          }
+      }
       waypoints.pop_front();
     }
   } else {
-    // Apply friction/drag when no target is set
-    velocity = Vector2Scale(velocity, 0.95f);
+    // No path
+    // If we are ALIGNING, we are sitting in the spot wanting to rotate.
+    if (state == CarState::ALIGNING) {
+        // Smooth Rotation Logic
+        float targetDeg = (targetRotation * RAD2DEG) + 90.0f;
+        float rotSpeed = 120.0f; // degrees per second
+        
+        float diff = targetDeg - currentRotation;
+        while (diff > 180.0f) diff -= 360.0f;
+        while (diff <= -180.0f) diff += 360.0f;
+        
+        if (fabs(diff) < 1.0f) {
+            currentRotation = targetDeg;
+            state = CarState::PARKED;
+            parkingTimer = 10.0f; // 10 seconds wait
+        } else {
+            float change = rotSpeed * (float)dt;
+            if (change > fabs(diff)) change = fabs(diff);
+            currentRotation += (diff > 0) ? change : -change;
+        }
+        
+    } 
+    else if (state == CarState::DRIVING) {
+        // Just stopped?
+        velocity = Vector2Scale(velocity, 0.95f);
+    }
+     else if (state == CarState::EXITING) {
+         // Despawn logic triggers externally
+    }
+  }
+  
+  // Update rotation from velocity if moving
+  if (state != CarState::PARKED && state != CarState::ALIGNING && Vector2Length(velocity) > 0.1f) {
+      currentRotation = atan2f(velocity.y, velocity.x) * RAD2DEG + 90.0f;
   }
 
   // --- Collision Avoidance (Braking and Separation) ---
-  if (cars) {
-    for (const auto &other : *cars) {
-      if (other.get() == this)
-        continue;
+  // Only apply if moving and not parked
+  if (state == CarState::DRIVING || state == CarState::EXITING) {
+      if (cars) {
+        for (const auto &other : *cars) {
+          if (other.get() == this)
+            continue;
 
-      float dist = Vector2Distance(position, other->getPosition());
+          float dist = Vector2Distance(position, other->getPosition());
 
-      // If a car is within the detection range (3.5m), apply avoidance forces
-      if (dist < 3.5f) {
-        // 1. Apply Braking (Force opposite to current velocity)
-        if (Vector2Length(velocity) > 0.5f) {
-          Vector2 heading = Vector2Normalize(velocity);
-          float brakingStrength = 30.0f;
-          Vector2 brakingForce = Vector2Scale(heading, -brakingStrength);
-          applyForce(brakingForce);
+          // If a car is within the detection range (3.5m), apply avoidance forces
+          if (dist < 3.5f) {
+            // 1. Apply Braking (Force opposite to current velocity)
+            if (Vector2Length(velocity) > 0.5f) {
+              Vector2 heading = Vector2Normalize(velocity);
+              float brakingStrength = 30.0f;
+              Vector2 brakingForce = Vector2Scale(heading, -brakingStrength);
+              applyForce(brakingForce);
+            }
+
+            // 2. Apply Separation (Push the car away from the neighbor)
+            Vector2 push = Vector2Subtract(position, other->getPosition());
+            push = Vector2Normalize(push);
+
+            // Strength of the push increases as distance decreases
+            float pushStrength = 25.0f * (1.0f - (dist / 3.5f));
+            applyForce(Vector2Scale(push, pushStrength));
+          }
         }
-
-        // 2. Apply Separation (Push the car away from the neighbor)
-        Vector2 push = Vector2Subtract(position, other->getPosition());
-        push = Vector2Normalize(push);
-
-        // Strength of the push increases as distance decreases
-        float pushStrength = 25.0f * (1.0f - (dist / 3.5f));
-        applyForce(Vector2Scale(push, pushStrength));
       }
-    }
   }
 
   // --- Physics Integration ---
-  // Apply accumulated acceleration to velocity
-  velocity = Vector2Add(velocity, Vector2Scale(acceleration, (float)dt));
+  if (state != CarState::PARKED && state != CarState::ALIGNING) {
+      // Apply accumulated acceleration to velocity
+      velocity = Vector2Add(velocity, Vector2Scale(acceleration, (float)dt));
 
-  // Limit velocity to max speed
-  if (Vector2Length(velocity) > maxSpeed) {
-    velocity = Vector2Scale(Vector2Normalize(velocity), maxSpeed);
+      // Limit velocity to max speed
+      if (Vector2Length(velocity) > maxSpeed) {
+        velocity = Vector2Scale(Vector2Normalize(velocity), maxSpeed);
+      }
+
+      // Update Position
+      position = Vector2Add(position, Vector2Scale(velocity, (float)dt));
   }
-
-  // Update Position
-  position = Vector2Add(position, Vector2Scale(velocity, (float)dt));
 
   // Reset acceleration for the next frame
   acceleration = {0, 0};
@@ -123,10 +196,8 @@ void Car::draw() {
   float height = 31.0f / static_cast<float>(Config::ART_PIXELS_PER_METER);
 
   // Rotation
-  // Assets are facing UP.
-  // Game rotation 0 is RIGHT (usually 0 radians = right).
-  // atan2(y, x) returns angle relative to X axis (Right).
-  float rotation = atan2f(velocity.y, velocity.x) * RAD2DEG + 90.0f;
+  float rotation = currentRotation; // Use smoothed rotation
+
 
   Rectangle source = {0, 0, (float)tex.width, (float)tex.height};
   Rectangle dest = {position.x, position.y, width, height};
@@ -135,8 +206,8 @@ void Car::draw() {
   DrawTexturePro(tex, source, dest, origin, rotation, WHITE);
 
   // Draw velocity vector (heading) for debug
-  Vector2 velEnd = Vector2Add(position, Vector2Scale(velocity, 0.5f)); // Scale velocity for visualization
-  DrawLineV(position, velEnd, GREEN);
+  // Vector2 velEnd = Vector2Add(position, Vector2Scale(velocity, 0.5f)); 
+  // DrawLineV(position, velEnd, GREEN);
 }
 
 /**

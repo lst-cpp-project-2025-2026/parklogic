@@ -27,6 +27,9 @@ public:
     // Clear all entities
     void clear();
 
+    // Remove specific car
+    void removeCar(Car* car);
+
 private:
     std::shared_ptr<EventBus> eventBus;
     std::vector<Subscription> eventTokens;
