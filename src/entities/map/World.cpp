@@ -5,7 +5,7 @@
 #include "raylib.h"
 #include <cmath>
 
-World::World(float width, float height) : width(width), height(height), showGrid(true) {
+World::World(float width, float height) : width(width), height(height), showGrid(false) {
   // Load Textures
   auto &AM = AssetManager::Get();
   AM.LoadTexture("grass1", "assets/grass1.png");

@@ -49,24 +49,17 @@ public:
 
   // --- New Pathfinding Methods ---
   
-  // For Road Entrances: Get the specific entry point for a lane
-  virtual Waypoint getEntryWaypoint(Lane lane) const;
-
   // For Facilities: Get a random spot index
   int getRandomSpotIndex() const;
 
   // For Facilities: Get the Spot data by index
   Spot getSpot(int index) const;
   
-  // For Facilities: Get the center waypoint (global)
-  Waypoint getCenterWaypoint() const;
+  // Helper to determine facility orientation
+  virtual bool isUp() const { return false; }
   
-  // For Facilities: Get the alignment waypoint for a specific spot (global)
-  // Distance is 8.0m in opposite direction of orientation
-  Waypoint getAlignmentWaypoint(const Spot& spot) const;
-  
-  // For Facilities: Get the strict waypoint for the spot itself (global)
-  Waypoint getSpotWaypoint(const Spot& spot) const;
+  // Accessor for local waypoints (needed by PathPlanner)
+  const std::vector<Waypoint>& getLocalWaypoints() const { return localWaypoints; }
 
 protected:
   float width;
@@ -89,21 +82,21 @@ class UpEntranceRoad : public Module {
 public:
   UpEntranceRoad();
   void draw() const override;
-  Waypoint getEntryWaypoint(Lane lane) const override;
+
 };
 
 class DownEntranceRoad : public Module {
 public:
   DownEntranceRoad();
   void draw() const override;
-  Waypoint getEntryWaypoint(Lane lane) const override;
+
 };
 
 class DoubleEntranceRoad : public Module {
 public:
   DoubleEntranceRoad();
   void draw() const override;
-  Waypoint getEntryWaypoint(Lane lane) const override;
+
 };
 
 // --- Facilities ---
@@ -112,6 +105,7 @@ class SmallParking : public Module {
 public:
   SmallParking(bool isTop);
   void draw() const override;
+  bool isUp() const override { return isTop; }
 private:
   bool isTop;
 };
@@ -120,6 +114,7 @@ class LargeParking : public Module {
 public:
   LargeParking(bool isTop);
   void draw() const override;
+  bool isUp() const override { return isTop; }
 private:
   bool isTop;
 };
@@ -128,6 +123,7 @@ class SmallChargingStation : public Module {
 public:
   SmallChargingStation(bool isTop);
   void draw() const override;
+  bool isUp() const override { return isTop; }
 private:
   bool isTop;
 };
@@ -136,6 +132,7 @@ class LargeChargingStation : public Module {
 public:
   LargeChargingStation(bool isTop);
   void draw() const override;
+  bool isUp() const override { return isTop; }
 private:
   bool isTop;
 };

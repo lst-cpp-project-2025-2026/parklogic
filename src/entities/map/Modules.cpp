@@ -70,16 +70,7 @@ const AttachmentPoint *Module::getAttachmentPointByNormal(Vector2 normal) const 
 }
 
 // --- New Pathfinding Implementation ---
-
-Waypoint Module::getEntryWaypoint(Lane lane) const {
-    // Default implementation returns the first waypoint (center), ignoring lane
-    // This should be overridden by EntranceRoads
-     if (!localWaypoints.empty()) {
-        const auto& lwp = localWaypoints[0];
-         return Waypoint(Vector2Add(worldPosition, lwp.position), 2.0f, lwp.id, lwp.entryAngle, false);
-    }
-    return Waypoint(worldPosition);
-}
+// Logic moved to PathPlanner system.
 
 int Module::getRandomSpotIndex() const {
     if (spots.empty()) return -1;
@@ -91,42 +82,6 @@ Spot Module::getSpot(int index) const {
         return spots[index];
     }
     return {{0,0}, 0};
-}
-
-Waypoint Module::getCenterWaypoint() const {
-    // Typically the first local waypoint added is the center/main one
-    if (!localWaypoints.empty()) {
-        const auto& lwp = localWaypoints[0];
-         // Standard tolerance for center point
-        return Waypoint(Vector2Add(worldPosition, lwp.position), 1.0f, lwp.id, lwp.entryAngle, false); 
-    }
-    return Waypoint(Vector2Add(worldPosition, {width/2, height/2}));
-}
-
-Waypoint Module::getAlignmentWaypoint(const Spot& spot) const {
-    // Global Spot Position
-    Vector2 spotGlobal = Vector2Add(worldPosition, spot.localPosition);
-    
-    // We want a point 8 meters *opposite* to the orientation
-    // Orientation is where the car *enters*, so we back up from there.
-    // If orientation is LEFT (PI), opposite is RIGHT (0).
-    // So we add vector in direction (orientation + PI).
-    
-    float backAngle = spot.orientation + PI; // Opposite direction
-    float dist = 8.0f; 
-    
-    Vector2 offset = { cosf(backAngle) * dist, sinf(backAngle) * dist };
-    Vector2 alignPos = Vector2Add(spotGlobal, offset);
-    
-    // Tolerance can be loose? No, we want to hit this to align. 
-    // Let's say 1.0m
-    return Waypoint(alignPos, 1.0f);
-}
-
-Waypoint Module::getSpotWaypoint(const Spot& spot) const {
-   Vector2 spotGlobal = Vector2Add(worldPosition, spot.localPosition);
-   // Strict tolerance (0.2m?) and StopAtEnd = true
-   return Waypoint(spotGlobal, 0.2f, spot.id, spot.orientation, true);
 }
 
 // --- Roads ---
@@ -178,14 +133,7 @@ void UpEntranceRoad::draw() const {
   Module::draw();
 }
 
-Waypoint UpEntranceRoad::getEntryWaypoint(Lane lane) const {
-    float xCenter = P2M(142);
-    float yOffset = (lane == Lane::DOWN) ? P2M(Config::LANE_OFFSET_DOWN) : P2M(Config::LANE_OFFSET_UP); 
-    // Lane::DOWN = 94 (Traffic going Right), Lane::UP = 61 (Traffic going Left)
-    
-    // Loose tolerance (e.g. 2.5m)
-    return Waypoint(Vector2Add(worldPosition, {xCenter, yOffset}), 2.5f);
-}
+
 
 // down entrance road : left (0 78) right (283 78) down(142 155) size (284 155)
 DownEntranceRoad::DownEntranceRoad() : Module(P2M(284), P2M(155)) {
@@ -207,11 +155,7 @@ void DownEntranceRoad::draw() const {
   Module::draw();
 }
 
-Waypoint DownEntranceRoad::getEntryWaypoint(Lane lane) const {
-    float xCenter = P2M(142);
-    float yOffset = (lane == Lane::DOWN) ? P2M(Config::LANE_OFFSET_DOWN) : P2M(Config::LANE_OFFSET_UP);
-    return Waypoint(Vector2Add(worldPosition, {xCenter, yOffset}), 2.5f);
-}
+
 
 // double entrance road : left (0 78) right (283 78) up(142 0) down(142 155) size (284 155)
 DoubleEntranceRoad::DoubleEntranceRoad() : Module(P2M(284), P2M(155)) {
@@ -234,11 +178,7 @@ void DoubleEntranceRoad::draw() const {
   Module::draw();
 }
 
-Waypoint DoubleEntranceRoad::getEntryWaypoint(Lane lane) const {
-    float xCenter = P2M(142);
-    float yOffset = (lane == Lane::DOWN) ? P2M(Config::LANE_OFFSET_DOWN) : P2M(Config::LANE_OFFSET_UP);
-    return Waypoint(Vector2Add(worldPosition, {xCenter, yOffset}), 2.5f);
-}
+// (Removed getEntryWaypoint implementation)
 
 // --- Facilities ---
 
@@ -370,7 +310,16 @@ SmallChargingStation::SmallChargingStation(bool isTop) : Module(P2M(219), P2M(16
       float xsDown[] = {38, 73, 109, 145, 181};
       for(float x : xsDown) spots.push_back({{P2M(x), yDown}, PI/2, 0});
   }
-  addWaypoint({P2M(163), height / 2.0f});
+  if (isTop) {
+      // Entrance at Bottom (Height)
+      // Original Center: Height/2
+      // Fix: Move closer to entrance (Height * 0.8)
+      addWaypoint({P2M(163), height * 0.85f});
+  } else {
+      // Entrance at Top (0)
+      // Fix: Move closer to entrance (Height * 0.2)
+      addWaypoint({P2M(163), height * 0.15f});
+  }
 }
 
 void SmallChargingStation::draw() const {
