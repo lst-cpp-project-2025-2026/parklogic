@@ -2,6 +2,7 @@
 #include "entities/map/Waypoint.hpp"
 #include "entities/map/Modules.hpp"
 #include "entities/Car.hpp"
+#include "config.hpp"
 #include <vector>
 
 class PathPlanner {
@@ -50,4 +51,9 @@ private:
      * @brief Calculates the final parking spot waypoint.
      */
     static Waypoint CalculateSpotPoint(const Module* facility, const Spot& spot);
+
+    /**
+     * @brief Adds a segment of waypoints from start to target, subdividing based on the Phase config.
+     */
+    static void AddSegment(std::vector<Waypoint>& path, Vector2 startPos, Waypoint target, const Config::CarAI::AIPhase& phase);
 };

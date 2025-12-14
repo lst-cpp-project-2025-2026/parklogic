@@ -1,13 +1,13 @@
 #pragma once
-#include <vector>
 #include "entities/map/Waypoint.hpp"
 #include "raylib.h"
+#include <vector>
 
 struct MapConfig {
-  int smallParkingCount = 2;
-  int largeParkingCount = 2;
-  int smallChargingCount = 2;
-  int largeChargingCount = 2;
+  int smallParkingCount = 1;
+  int largeParkingCount = 1;
+  int smallChargingCount = 1;
+  int largeChargingCount = 0;
 };
 
 enum class SceneType { MainMenu, MapConfig, Game };
@@ -17,16 +17,16 @@ struct SceneChangeEvent {
 };
 
 struct GenerateWorldEvent {
-    MapConfig config;
+  MapConfig config;
 };
 
 struct WorldBoundsEvent {
-    float width;
-    float height;
+  float width;
+  float height;
 };
 
 struct GameUpdateEvent {
-    double dt;
+  double dt;
 };
 
 struct BeginCameraEvent {};
@@ -44,7 +44,7 @@ struct CameraZoomEvent {
 };
 
 struct CameraMoveEvent {
-    Vector2 delta;
+  Vector2 delta;
 };
 
 struct SpawnCarEvent {};
@@ -52,23 +52,23 @@ struct SpawnCarEvent {};
 struct SpawnCarRequestEvent {};
 
 struct CreateCarEvent {
-    Vector2 position;
-    Vector2 velocity; // Initial velocity (sets heading)
+  Vector2 position;
+  Vector2 velocity; // Initial velocity (sets heading)
 };
 
 struct CarSpawnedEvent {
-    class Car* car;
+  class Car *car;
 };
 
 struct AssignPathEvent {
-    class Car* car;
-    std::vector<struct Waypoint> path;
+  class Car *car;
+  std::vector<struct Waypoint> path;
 };
 
 struct CarFinishedParkingEvent {
-    class Car* car;
+  class Car *car;
 };
 
 struct CarDespawnEvent {
-    class Car* car;
+  class Car *car;
 };

@@ -256,43 +256,37 @@ void Car::seek(const Waypoint &wp) {
   // If entryAngle is set, it means "we should be at this angle when we hit the waypoint".
   // So we compare our current angle to that entry angle to decide if we need to slow down.
 
-  float targetAngle = wp.entryAngle;
-  // If entryAngle is 0, it might be uninitialized or actually 0.
-  // Let's assume if it's a significant turn, it will be set.
-  // But wait, we need to know the difference between current heading and the *next* leg's heading.
-  // The user said: "each waypoint carries the information of the turn angle so the car can slow down depending on the
-  // upcoming turn"
 
-  float angleDiff = 0.0f;
 
-  // If we have a specific entry angle for this waypoint (meaning a turn is expected)
-  // We compare our current heading with that angle.
-  // However, usually we want to slow down if the *next* turn is sharp.
-  // The waypoint we are seeking IS the turn point.
-  // So wp.entryAngle should represent the direction we need to be facing *after* the waypoint, or the direction of the
-  // turn. Let's assume wp.entryAngle is the angle of the segment *entering* the facility or the *next* road segment.
+  // 1. Base Speed Limit from Waypoint (Segment Speed)
+  float limitSpeed = maxSpeed * wp.speedLimitFactor;
+  float speed = limitSpeed;
 
-  // Let's use the difference between current velocity angle and the waypoint's entry angle.
-  float diff = fabs(currentAngle - targetAngle);
-  while (diff > PI)
-    diff -= 2 * PI;
-  angleDiff = fabs(diff);
+  // 2. Turn Slowdown Logic
+  // Calculate angle difference between current heading and target heading
+  float targetAngle = wp.entryAngle; // Is set for critical turns in PathPlanner
+  
+  float diff = currentAngle - targetAngle;
+  while (diff <= -PI) diff += 2 * PI;
+  while (diff > PI) diff -= 2 * PI;
+  
+  float angleDiff = fabs(diff);
 
-  float speed = maxSpeed;
-
-  // Slow down for turns
-  // If the waypoint has a specific angle (e.g. not just 0 or we rely on the flag)
-  // For now, let's assume if angleDiff is large, we slow down.
-  // But we only want to do this if we are getting close?
-  // The user said "slow down depending on the upcoming turn instead of during a turn".
-  // So as we approach the waypoint, if it's a sharp turn, we slow down.
-
-  if (dist < 10.0f) {                // Start slowing down 10m before
-    if (angleDiff > 0.5f) {          // > ~30 degrees
-      float factor = (dist / 10.0f); // 0 to 1
-      // Blend between maxSpeed and a slower turn speed
-      float turnSpeed = maxSpeed * 0.4f;
-      speed = turnSpeed + (maxSpeed - turnSpeed) * factor;
+  // If we are approaching a turn, slow down
+  if (dist < Config::CarAI::TURN_SLOWDOWN_DIST) {
+    if (angleDiff > Config::CarAI::TURN_SLOWDOWN_ANGLE) {
+       // Factor: 0.0 (at waypoint) to 1.0 (at distance boundary)
+       float factor = (dist / Config::CarAI::TURN_SLOWDOWN_DIST);
+       
+       float turnMinSpeed = maxSpeed * Config::CarAI::TURN_MIN_SPEED_FACTOR;
+       
+       // Interpolate: As we get closer (factor -> 0), speed drops towards turnMinSpeed
+       float flexibleSpeed = turnMinSpeed + (limitSpeed - turnMinSpeed) * factor;
+       
+       // Apply if it requires slowing down (don't speed up if we are already slow)
+       if (speed > flexibleSpeed) {
+           speed = flexibleSpeed;
+       }
     }
   }
 
@@ -302,8 +296,16 @@ void Car::seek(const Waypoint &wp) {
     float stopRadius = 10.0f;
     if (dist < stopRadius) {
       float t = dist / stopRadius;
-      // Smooth step or linear
-      speed = maxSpeed * t;
+      // Linear ramp down from MaxSpeed
+      float stopSpeed = maxSpeed * t;
+      
+      // Respect the segment limit and turn slowdown
+      // If stopSpeed is higher than our current limited speed, ignore it (keep the lower speed)
+      // If stopSpeed is lower (we are very close), use it to stop.
+      if (stopSpeed < speed) {
+          speed = stopSpeed;
+      }
+
       if (speed < 0.5f)
         speed = 0.5f; // Min speed to actually reach it
     }

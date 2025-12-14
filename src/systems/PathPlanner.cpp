@@ -22,158 +22,205 @@ std::vector<Waypoint> PathPlanner::GeneratePath(const Car* car, const Module* ta
     std::vector<Waypoint> path;
     
     // 1. Determine Horizontal Lane on the Main Road
-    // Cars moving right (positive X) use the DOWN lane (bottom lane).
-    // Cars moving left (negative X) use the UP lane (top lane).
     Lane mainRoadLane = (car->getVelocity().x > 0) ? Lane::DOWN : Lane::UP;
     
     // 2. Determine Facility Orientation and Entry Side
-    // UP Facilities (physically above the road) require entering from the RIGHT side of the access road.
-    // DOWN Facilities (physically below the road) require entering from the LEFT side of the access road.
     bool isUpFacility = targetFac->isUp(); 
     bool useRightSideEntry = isUpFacility; // Up -> Right, Down -> Left
 
-    // 3. Waypoint 1: Road Entry Point
-    // This is the point on the main road where the car turns into the facility's access road.
-    Module* parentRoad = targetFac->getParent();
-    if (parentRoad) {
-        path.push_back(CalculateRoadEntry(parentRoad, mainRoadLane, useRightSideEntry));
-    } else {
-        // Fallback: Direct approach if no parent road is defined (should not happen in proper setup)
-        path.push_back(CalculateFacilityEntry(targetFac, useRightSideEntry));
-    }
+    // Track current position for segment generation
+    Vector2 currentPos = car->getPosition();
 
-    // 4. Waypoint 2: Facility Entry Point
-    // This is the point inside the facility's entrance, aligned with the road entry point.
-    path.push_back(CalculateFacilityEntry(targetFac, useRightSideEntry));
+    // 3. Waypoint 1: Road Entry Point
+    // Phase: APPROACH
+    Module* parentRoad = targetFac->getParent();
+    Waypoint wpEntry = parentRoad ? CalculateRoadEntry(parentRoad, mainRoadLane, useRightSideEntry) 
+                                  : CalculateFacilityEntry(targetFac, useRightSideEntry);
+    
+    // Set Angle
+    wpEntry.entryAngle = isUpFacility ? -PI / 2.0f : PI / 2.0f;
+    
+    // Split the Approach:
+    // If the distance to the entry is long (> 40m), drive in HIGHWAY mode first.
+    // Then switch to APPROACH mode for the last 30m (where braking might occur).
+    float distToEntry = Vector2Distance(currentPos, wpEntry.position);
+    float approachDist = Config::CarAI::TURN_SLOWDOWN_DIST + 5.0f; // e.g. 35m
+    
+    if (distToEntry > approachDist + 10.0f) {
+        // Create an intermediate "Pre-Approach" point
+        // Distance from Entry = approachDist
+        // Lerp factor = 1.0 - (approachDist / distToEntry)
+        // Actually, we want the point at (dist - approachDist)
+        
+        float t = 1.0f - (approachDist / distToEntry);
+        Vector2 prePos = Vector2Lerp(currentPos, wpEntry.position, t);
+        
+        // Target: Pre-Approach Point
+        // Phase: HIGHWAY
+        // Angle: 0 (Straight driving logic usually, or just point to next)
+        // Actually, entryAngle matters for the *next* turn.
+        // For this point, we are just driving straight on road.
+        // Let's set it to 0 or derive from direction. 
+        // But simpler: just inherit 0.
+        
+        Waypoint wpPre = wpEntry;
+        wpPre.position = prePos;
+        wpPre.entryAngle = 0.0f; // No sharp turn expected here
+        wpPre.stopAtEnd = false;
+        
+        AddSegment(path, currentPos, wpPre, Config::CarAI::Phases::HIGHWAY);
+        currentPos = prePos;
+    }
+    
+    AddSegment(path, currentPos, wpEntry, Config::CarAI::Phases::APPROACH);
+    currentPos = wpEntry.position; // Update head
+
+    // 4. Waypoint 2: Facility Entry Point (Gate)
+    // Phase: ACCESS
+    Waypoint wpGate = CalculateFacilityEntry(targetFac, useRightSideEntry);
+    wpGate.entryAngle = wpEntry.entryAngle; // Vertical
+    
+    AddSegment(path, currentPos, wpGate, Config::CarAI::Phases::ACCESS);
+    currentPos = wpGate.position;
 
     // 5. Waypoint 3: Alignment Point
-    // A helper point in front of the parking spot to ensure a straight approach.
-    path.push_back(CalculateAlignmentPoint(targetFac, targetSpot));
+    // Phase: MANEUVER
+    Waypoint wpAlign = CalculateAlignmentPoint(targetFac, targetSpot);
+    wpAlign.entryAngle = targetSpot.orientation;
+
+    AddSegment(path, currentPos, wpAlign, Config::CarAI::Phases::MANEUVER);
+    currentPos = wpAlign.position;
 
     // 6. Waypoint 4: Final Parking Spot
-    // The exact center of the designated parking spot.
-    path.push_back(CalculateSpotPoint(targetFac, targetSpot));
+    // Phase: PARKING
+    Waypoint wpSpot = CalculateSpotPoint(targetFac, targetSpot);
+    
+    AddSegment(path, currentPos, wpSpot, Config::CarAI::Phases::PARKING);
 
     return path;
 }
 
 Waypoint PathPlanner::CalculateRoadEntry(const Module* road, Lane roadLane, bool useRightSideEntry) {
-    // The "Road Entry" is one of 4 possible points on the Entrance Module.
-    // It is defined by the intersection of:
-    // 1. The Horizontal Lane (UP or DOWN)
-    // 2. The Vertical Entry Lane (Left or Right of the T-junction center)
-    
     Vector2 roadWorldPos = road->worldPosition;
-    
-    // Horizontal Position (X):
-    // Based on the T-junction center +/- the entrance lane offset.
-    // Up Facility   -> Enter on Right side -> Center + 18
-    // Down Facility -> Enter on Left side  -> Center - 18
     float xCenter = P2M(ROAD_TJUNCTION_CENTER_X);
     float xOffset = useRightSideEntry ? P2M(ENTRANCE_LANE_OFFSET_X) : -P2M(ENTRANCE_LANE_OFFSET_X);
-    
-    // Vertical Position (Y):
-    // Based on the main road lane logic defined in Config.
     float yOffset = (roadLane == Lane::DOWN) ? P2M(Config::LANE_OFFSET_DOWN) : P2M(Config::LANE_OFFSET_UP);
 
-    // Combine to get the exact turning point on the main road
-    return Waypoint(Vector2Add(roadWorldPos, {xCenter + xOffset, yOffset}), 2.5f);
+    // Default tolerance/speed overridden by AddSegment
+    return Waypoint(Vector2Add(roadWorldPos, {xCenter + xOffset, yOffset}));
 }
 
 Waypoint PathPlanner::CalculateFacilityEntry(const Module* facility, bool useRightSideEntry) {
-    // The "Facility Entry" aligns with the Road Entry but is physically inside the facility.
-    // It serves as the anchor point for the 90-degree turn into the facility.
-    
-    // We start from the facility's "Base" entrance point.
-    // Typically, this is the center of the module or the first local waypoint.
     Vector2 basePos = {facility->getWidth()/2, facility->getHeight()/2};
     std::vector<Waypoint> localWps = facility->getLocalWaypoints();
     if (!localWps.empty()) {
         basePos = localWps[0].position;
     }
-    
-    // We apply the SAME Horizontal Offset as the Road Entry to ensure vertical alignment.
-    // Up Facility (Right Entry)   -> Shift Right (+18)
-    // Down Facility (Left Entry)  -> Shift Left (-18)
     float offset = useRightSideEntry ? P2M(ENTRANCE_LANE_OFFSET_X) : -P2M(ENTRANCE_LANE_OFFSET_X);
     Vector2 offsetVec = {offset, 0};
     
-    return Waypoint(Vector2Add(facility->worldPosition, Vector2Add(basePos, offsetVec)), 1.5f);
+    return Waypoint(Vector2Add(facility->worldPosition, Vector2Add(basePos, offsetVec)));
 }
 
 Waypoint PathPlanner::CalculateAlignmentPoint(const Module* facility, const Spot& spot) {
-    // Calculates a point ~8 meters in front of the spot, aligned with the spot's orientation.
-    // This forces the car to "pull up" straight before making the final approach.
-    
     Vector2 spotGlobal = Vector2Add(facility->worldPosition, spot.localPosition);
-    
-    // "Back" direction is opposite to the spot's orientation.
     float backAngle = spot.orientation + PI; 
     float dist = 8.0f; 
-    
     Vector2 offset = { cosf(backAngle) * dist, sinf(backAngle) * dist };
     Vector2 alignPos = Vector2Add(spotGlobal, offset);
     
-    return Waypoint(alignPos, 1.0f);
+    return Waypoint(alignPos);
 }
 
 Waypoint PathPlanner::CalculateSpotPoint(const Module* facility, const Spot& spot) {
     Vector2 spotGlobal = Vector2Add(facility->worldPosition, spot.localPosition);
-    
-    // Final destination: High precision required (0.2m tolerance), Stop at End = true.
     return Waypoint(spotGlobal, 0.2f, spot.id, spot.orientation, true);
 }
 
 std::vector<Waypoint> PathPlanner::GenerateExitPath(const Car* car, const Module* currentFac, const Spot& currentSpot, bool exitRight, float finalX) {
     std::vector<Waypoint> path;
+    Vector2 currentPos = car->getPosition();
     
     // 1. Waypoint 1: Alignment Point (Reverse)
-    // Car backs out/aligns to this point first.
-    path.push_back(CalculateAlignmentPoint(currentFac, currentSpot));
+    // Phase: MANEUVER
+    Waypoint wpAlign = CalculateAlignmentPoint(currentFac, currentSpot);
+    // Spot->Align is slow
+    AddSegment(path, currentPos, wpAlign, Config::CarAI::Phases::MANEUVER);
+    currentPos = wpAlign.position;
     
-    // 2. Waypoint 2: Facility Exit Point
-    // Logic:
-    // UP Facility: Enters Right, Exits Left.
-    // DOWN Facility: Enters Left, Exits Right.
+    // 2. Waypoint 2: Facility Exit Point (Gate)
+    // Phase: ACCESS
     bool isUpFac = currentFac->isUp();
-    bool useRightSideExit = !isUpFac; // Up -> Left (false), Down -> Right (true)
+    bool useRightSideExit = !isUpFac; 
     
-    path.push_back(CalculateFacilityEntry(currentFac, useRightSideExit));
+    Waypoint wpGate = CalculateFacilityEntry(currentFac, useRightSideExit);
+    wpGate.entryAngle = isUpFac ? PI / 2.0f : -PI / 2.0f;
+
+    AddSegment(path, currentPos, wpGate, Config::CarAI::Phases::ACCESS);
+    currentPos = wpGate.position;
     
     // 3. Waypoint 3: Road Entry/Exit Point
-    // Logic:
-    // Exiting Right -> Drive in Down Lane -> Connector is Right Side (+18)
-    // Exiting Left  -> Drive in Up Lane   -> Connector is Left Side (-18)
-    
+    // Phase: ACCESS
     Module* parentRoad = currentFac->getParent();
     if (parentRoad) {
         Lane exitLane = exitRight ? Lane::DOWN : Lane::UP;
-        
-        // If exiting Right (Down Lane), we need to hit the Right connector (+18)
-        // If exiting Left (Up Lane), we need to hit the Left connector (-18)
-        // BUT: The connector we use depends on the FACILITY type, not the target direction.
-        // Up Facility   -> Uses Left Connector (Lower X)
-        // Down Facility -> Uses Right Connector (Higher X)
         bool roadConnectorSide = !currentFac->isUp(); 
         
-        path.push_back(CalculateRoadEntry(parentRoad, exitLane, roadConnectorSide));
+        Waypoint wpRoad = CalculateRoadEntry(parentRoad, exitLane, roadConnectorSide);
+        wpRoad.entryAngle = exitRight ? 0.0f : PI;
+        
+        AddSegment(path, currentPos, wpRoad, Config::CarAI::Phases::ACCESS);
+        currentPos = wpRoad.position;
     }
     
-    // 4. Waypoint 4: Map Edge Exit (Out of world)
+    // 4. Waypoint 4: Map Edge Exit
+    // Phase: HIGHWAY (Crucial change: High density correction over long distance)
     float yPos = 0.0f;
     if (parentRoad) {
         float laneOffset = (exitRight) ? P2M(Config::LANE_OFFSET_DOWN) : P2M(Config::LANE_OFFSET_UP);
         yPos = parentRoad->worldPosition.y + laneOffset;
     } else {
-        // Fallback
         yPos = car->getPosition().y; 
     }
     
-    // finalX is in Meters (passed from TrafficSystem)
-    float xPos = finalX;
+    Waypoint wpEdge({finalX, yPos}, 1.0f, -1, 0.0f, true);
     
-    // Stop at the map edge (or beyond)
-    path.push_back(Waypoint({xPos, yPos}, 1.0f, -1, 0.0f, true));
+    AddSegment(path, currentPos, wpEdge, Config::CarAI::Phases::HIGHWAY);
     
     return path;
+}
+
+void PathPlanner::AddSegment(std::vector<Waypoint>& path, Vector2 startPos, Waypoint target, const Config::CarAI::AIPhase& phase) {
+    // 1. Calculate Segment distance
+    float dist = Vector2Distance(startPos, target.position);
+    
+    // 2. Determine number of correction points
+    // If step is 15m and dist is 45m -> 3 steps -> 2 intermediate points?
+    // count = floor(dist / step)
+    
+    if (phase.correctionStep > 0.0f && dist > phase.correctionStep) {
+        int steps = std::max(1, (int)(dist / phase.correctionStep));
+        
+        for (int k = 1; k < steps; ++k) {
+            float t = (float)k / (float)steps;
+            Vector2 newPos = Vector2Lerp(startPos, target.position, t);
+            
+            Waypoint wpCorr = target; // Inherit target properties (angle/ID potentially)
+            wpCorr.position = newPos;
+            wpCorr.id = -100; // Debug ID
+            wpCorr.stopAtEnd = false;
+            
+            // Apply Phase Config
+            wpCorr.tolerance = phase.tolerance;
+            wpCorr.speedLimitFactor = phase.speedFactor;
+            
+            path.push_back(wpCorr);
+        }
+    }
+    
+    // 3. Add the actual target waypoint
+    target.tolerance = phase.tolerance;
+    target.speedLimitFactor = phase.speedFactor;
+    
+    path.push_back(target);
 }
