@@ -111,25 +111,18 @@ Waypoint PathPlanner::CalculateRoadEntry(const Module* road, Lane roadLane, bool
 }
 
 Waypoint PathPlanner::CalculateFacilityEntry(const Module* facility, bool useRightSideEntry) {
-    Vector2 basePos = {facility->getWidth()/2, facility->getHeight()/2};
+    // Determine Horizontal Center from Local Waypoint or Module Width
+    float xBase = facility->getWidth() / 2.0f;
     std::vector<Waypoint> localWps = facility->getLocalWaypoints();
     if (!localWps.empty()) {
-        basePos = localWps[0].position;
+        xBase = localWps[0].position.x;
     }
     
     // Horizontal Offset for Lane (Left/Right entry)
     float xOffset = useRightSideEntry ? P2M(ENTRANCE_LANE_OFFSET_X) : -P2M(ENTRANCE_LANE_OFFSET_X);
+    float finalX = facility->worldPosition.x + xBase + xOffset;
     
-    // Vertical Offset for "Gate Depth" (Running into the facility)
-    // Up Facility (Top): Inward is DOWN (+Y) relative to World, but let's check local space?
-    // basePos is in World Space usually in these calcs if added to facility->worldPosition.
-    // Wait, localWps are local.
-    
-    // Let's calculate the final World Position first.
-    Vector2 finalPos = Vector2Add(facility->worldPosition, basePos);
-    finalPos.x += xOffset;
-    
-    // Apply Gate Depth
+    // Determine Depth based on Config and Type
     ModuleType type = facility->getType();
     float depth = Config::CarAI::GateDepth::GENERIC;
     
@@ -141,26 +134,23 @@ Waypoint PathPlanner::CalculateFacilityEntry(const Module* facility, bool useRig
         default: break;
     }
     
-    // Direction calculation
-    // Facility UP (at top of map): Entrance is at bottom of facility. Driving IN means driving UP?
-    // No. UpEntranceRoad connects to a facility ABOVE the road. 
-    // Wait. `UpEntranceRoad` connects to a facility.
-    // Let's verify orientation.
-    // If facility->isUp(), it is logically "Above" the road.
-    // The road is at Y. Facility is at Y - Height.
-    // So driving INTO it means driving UP (-Y).
+    // Calculate Vertical Position relative to Physical Entrance Edge
+    // Up Facility: Top-Left at WorldPos. Entrance is at Bottom (WorldPos.y + Height).
+    // Driving IN means moving Up (-Y).
+    // Final Y = (WorldPos.y + Height) - Depth
     
-    // However, the `basePos` (gate) is usually at the edge touching the road.
-    // So we want to move `depth` meters further UP (-Y) for Up Facility.
-    // And `depth` meters further DOWN (+Y) for Down Facility.
+    // Down Facility: Top-Left at WorldPos. Entrance is at Top (WorldPos.y).
+    // Driving IN means moving Down (+Y).
+    // Final Y = WorldPos.y + Depth
     
+    float finalY = 0.0f;
     if (facility->isUp()) {
-        finalPos.y -= depth;
+        finalY = (facility->worldPosition.y + facility->getHeight()) - depth;
     } else {
-        finalPos.y += depth;
+        finalY = facility->worldPosition.y + depth;
     }
     
-    return Waypoint(finalPos);
+    return Waypoint({finalX, finalY});
 }
 
 Waypoint PathPlanner::CalculateAlignmentPoint(const Module* facility, const Spot& spot) {

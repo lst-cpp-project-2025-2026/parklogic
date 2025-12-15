@@ -41,10 +41,10 @@ constexpr AIPhase PARKING = {0.1f, 0.2f, 2.0f};   // Final spot (corrected back 
 
 namespace GateDepth {
 // Distance (Meters) to drive "into" the facility before aligning
-constexpr float SMALL_PARKING = 1.0f;
-constexpr float LARGE_PARKING = 1.0f;
+constexpr float SMALL_PARKING = 12.0f;
+constexpr float LARGE_PARKING = 12.0f;
 constexpr float SMALL_CHARGING = 5.0f;
-constexpr float LARGE_CHARGING = 1.0f;
+constexpr float LARGE_CHARGING = 12.0f;
 constexpr float GENERIC = 5.0f;
 } // namespace GateDepth
 
