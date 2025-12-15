@@ -36,7 +36,7 @@ constexpr AIPhase HIGHWAY = {1.0f, 10.0f, 20.0f}; // Fast, loose, corrections ev
 constexpr AIPhase APPROACH = {1.0f, 3.5f, 5.0f};  // Approaches to facility
 constexpr AIPhase ACCESS = {0.4f, 2.0f, 3.0f};    // Entry roads / Connector
 constexpr AIPhase MANEUVER = {0.2f, 2.0f, 2.0f};  // Alignment / Interior
-constexpr AIPhase PARKING = {0.1f, 0.2f, 2.0f};   // Final spot (corrected back to user pref)
+constexpr AIPhase PARKING = {0.1f, 0.3f, 3.0f};   // Final spot (corrected back to user pref)
 } // namespace Phases
 
 namespace GateDepth {
