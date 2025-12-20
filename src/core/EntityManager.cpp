@@ -5,6 +5,7 @@
 #include "core/Logger.hpp"
 #include "entities/map/WorldGenerator.hpp"
 #include "events/GameEvents.hpp"
+#include "entities/Car.hpp"
 
 EntityManager::EntityManager(std::shared_ptr<EventBus> bus) : eventBus(bus) {
     // Subscribe to GenerateWorldEvent
@@ -37,7 +38,7 @@ EntityManager::EntityManager(std::shared_ptr<EventBus> bus) : eventBus(bus) {
     eventTokens.push_back(eventBus->subscribe<CreateCarEvent>([this](const CreateCarEvent& e) {
         if (!world) return;
         
-        auto car = std::make_unique<Car>(e.position, world.get(), e.velocity);
+        auto car = std::make_unique<Car>(e.position, world.get(), e.velocity, static_cast<Car::CarType>(e.carType));
         Car *carPtr = car.get();
         this->addCar(std::move(car));
 

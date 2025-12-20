@@ -13,18 +13,31 @@
  * @param startPos The initial position of the car (in meters).
  * @param world Pointer to the world environment for boundary checking.
  */
-Car::Car(Vector2 startPos, const World *world, Vector2 initialVelocity)
-    : position(startPos), velocity(initialVelocity), acceleration{0, 0}, world(world), maxSpeed(15.0f), maxForce(60.0f) {
+Car::Car(Vector2 startPos, const World *world, Vector2 initialVelocity, CarType type)
+    : position(startPos), velocity(initialVelocity), acceleration{0, 0}, world(world), maxSpeed(15.0f), maxForce(60.0f), type(type) {
     
-    // Pick a random texture (car11, car12, car13)
-    int type = GetRandomValue(1, 3);
-    textureName = "car1" + std::to_string(type);
+    // Pick visual based on type
+    int variant = GetRandomValue(1, 3); 
+    if (type == CarType::COMBUSTION) {
+        textureName = "car1" + std::to_string(variant);
+        batteryLevel = 0.0f; // Not valid for combustion
+    } else {
+        textureName = "car2" + std::to_string(variant);
+        batteryLevel = (float)GetRandomValue(10, 90); // Random start battery
+    }
     
     // Initialize rotation
     if (Vector2Length(velocity) > 0.1f) {
         currentRotation = atan2f(velocity.y, velocity.x) * RAD2DEG + 90.0f;
     }
 } // 15 m/s (~54 km/h), 60 m/s^2 force
+
+void Car::charge(float amount) {
+    if (type == CarType::ELECTRIC) {
+        batteryLevel += amount;
+        if (batteryLevel > 100.0f) batteryLevel = 100.0f;
+    }
+}
 
 void Car::setParkingContext(const Module* fac, const Spot& spot, int spotIndex) {
     parkedFacility = fac;
@@ -97,7 +110,14 @@ void Car::updateWithNeighbors(double dt, const std::vector<std::unique_ptr<Car>>
         if (fabs(diff) < 1.0f) {
             currentRotation = targetDeg;
             state = CarState::PARKED;
-            parkingTimer = 10.0f; // 10 seconds wait
+            // parkingTimer = 10.0f; // Old fixed value
+            
+            // Random parking duration
+            float minTime = Config::PARKING_MIN_TIME;
+            float maxTime = Config::PARKING_MAX_TIME;
+            // GetRandomValue returns int, so scale up and down
+            parkingTimer = (float)GetRandomValue((int)(minTime * 10), (int)(maxTime * 10)) / 10.0f;
+            
         } else {
             float change = rotSpeed * (float)dt;
             if (change > fabs(diff)) change = fabs(diff);

@@ -34,6 +34,10 @@ World::World(float width, float height) : width(width), height(height), showGrid
   AM.LoadTexture("car12", "assets/car12.png");
   AM.LoadTexture("car13", "assets/car13.png");
 
+  AM.LoadTexture("car21", "assets/car21.png");
+  AM.LoadTexture("car22", "assets/car22.png");
+  AM.LoadTexture("car23", "assets/car23.png");
+
   tileTextures = {"grass1", "grass2", "grass3", "grass4"};
 
   // Calculate Tile Size in Meters

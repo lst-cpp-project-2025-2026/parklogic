@@ -83,7 +83,11 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
              Logger::Info("Spawning Car RIGHT at ({}, {})", spawnPos.x, spawnPos.y);
         }
 
-        eventBus->publish(CreateCarEvent{spawnPos, spawnVel});
+        // Random Car Type
+        // 50% Combustion, 50% Electric (Configurable later)
+        int carType = (GetRandomValue(0, 1) == 0) ? 0 : 1; // 0: Combustion, 1: Electric
+
+        eventBus->publish(CreateCarEvent{spawnPos, spawnVel, carType});
     }));
 
     // 2. Handle Car Spawned -> Calculate Path -> Publish AssignPathEvent
@@ -92,16 +96,68 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
         
         std::vector<Module *> facilities;
         const auto& modules = entityManager.getModules();
+        
+        Car::CarType type = e.car->getType();
+        float battery = e.car->getBatteryLevel();
+        
+        bool seekCharging = false;
+        
+        if (type == Car::CarType::ELECTRIC) {
+            if (battery < Config::BATTERY_LOW_THRESHOLD) {
+                seekCharging = true;
+            } else if (battery > Config::BATTERY_HIGH_THRESHOLD) {
+                seekCharging = false;
+            } else {
+                // Weighted Random: Higher battery -> Lower chance to charge
+                // Normalize battery between Low (30) and High (70): 0.0 to 1.0
+                float t = (battery - Config::BATTERY_LOW_THRESHOLD) / (Config::BATTERY_HIGH_THRESHOLD - Config::BATTERY_LOW_THRESHOLD);
+                // Probability to park (not charge) increases with battery
+                if ((float)GetRandomValue(0, 100) / 100.0f < t) {
+                    seekCharging = false;
+                } else {
+                    seekCharging = true;
+                }
+            }
+        }
+        
+        // Filter Facilities
         for (const auto &mod : modules) {
-            if (dynamic_cast<SmallParking *>(mod.get()) || dynamic_cast<LargeParking *>(mod.get()) ||
-                dynamic_cast<SmallChargingStation *>(mod.get()) || dynamic_cast<LargeChargingStation *>(mod.get())) {
-                facilities.push_back(mod.get());
+            if (type == Car::CarType::COMBUSTION) {
+                // Combustion: Parking Only
+                if (dynamic_cast<SmallParking *>(mod.get()) || dynamic_cast<LargeParking *>(mod.get())) {
+                    facilities.push_back(mod.get());
+                }
+            } else {
+                // Electric
+                if (seekCharging) {
+                     if (dynamic_cast<SmallChargingStation *>(mod.get()) || dynamic_cast<LargeChargingStation *>(mod.get())) {
+                        facilities.push_back(mod.get());
+                    }
+                } else {
+                     if (dynamic_cast<SmallParking *>(mod.get()) || dynamic_cast<LargeParking *>(mod.get())) {
+                        facilities.push_back(mod.get());
+                    }
+                }
             }
         }
 
         if (facilities.empty()) {
-            Logger::Error("TrafficSystem: No facilities found.");
-            return;
+            Logger::Warn("TrafficSystem: No suitable facilities found for Car Type {} (SeekCharging: {}).", (int)type, seekCharging);
+            // Fallback: If electric wanted to charge but can't, try parking?
+            // Or just leave.
+             // Try fallback to parking if charging failed
+            if (find_if(facilities.begin(), facilities.end(), [](Module*){ return true; }) == facilities.end() && seekCharging) {
+                 for (const auto &mod : modules) {
+                     if (dynamic_cast<SmallParking *>(mod.get()) || dynamic_cast<LargeParking *>(mod.get())) {
+                        facilities.push_back(mod.get());
+                    }
+                 }
+            }
+            
+            if (facilities.empty()) {
+                 Logger::Error("TrafficSystem: Absolutely no facilities found.");
+                 return;
+            }
         }
 
         // Pick random facility
@@ -221,9 +277,66 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
                  }
             }
 
+            // Handle Parked Logic (Charging vs Waiting)
+            bool shouldExit = false;
+            
+            if (car->getState() == Car::CarState::PARKED) {
+                Module* fac =  const_cast<Module*>(car->getParkedFacility());
+                
+                // Identify if charging
+                bool isChargingSpot = false;
+                if (dynamic_cast<SmallChargingStation*>(fac) || dynamic_cast<LargeChargingStation*>(fac)) {
+                    isChargingSpot = true;
+                }
+                
+                if (isChargingSpot && car->getType() == Car::CarType::ELECTRIC) {
+                    // Charging Logic
+                    car->charge(Config::CHARGING_RATE * (float)e.dt);
+                    float bat = car->getBatteryLevel();
+                    
+                    if (bat > Config::BATTERY_FORCE_EXIT_THRESHOLD) {
+                        shouldExit = true;
+                    } else if (bat > Config::BATTERY_EXIT_THRESHOLD) {
+                        // Chance to leave increases with percentage (80 to 95 range)
+                        // normalized 0.0 to 1.0
+                        float range = Config::BATTERY_FORCE_EXIT_THRESHOLD - Config::BATTERY_EXIT_THRESHOLD;
+                        float excess = bat - Config::BATTERY_EXIT_THRESHOLD;
+                        // float chance = (excess / range) * 0.01f; // Unused
+                        
+                        // Let's just do a simple check: 
+                        // Base chance factor * excess * dt
+                        float probability = 0.5f * (excess / range) * (float)e.dt; 
+                        if ((float)GetRandomValue(0, 10000)/10000.0f < probability) {
+                            shouldExit = true;
+                        }
+                    }
+                    
+                    // Keep timer high so it doesn't expire by time?
+                    // Or allow time to also expire (e.g. done with coffee but car not full?)
+                    // User said: "at 95% the car leaves if it hasnt" implying battery is the driver.
+                    // But if parkingTimer expires, maybe they leave anyway?
+                    // Let's assume Charging overrides parking timer logic, OR they execute in parallel.
+                    // "if charging level is lower than 30% they go to charging"
+                    // "min parking duration and a max... cars stay somewhere in between"
+                    // This creates a conflict if min parking > charging time.
+                    // Let's allow `shouldExit` to trigger if EITHER condition is met?
+                    // Or Charging logic is exclusive for charging stations.
+                    // "electric cars... charging stations... charge level increases... above 80% chance to leave"
+                    // This implies the standard parking timer might NOT apply to charging stations.
+                    // I will strictly use battery logic for charging stations.
+                    
+                } else {
+                    // Regular Parking (Combustion or Electric in Parking Lot)
+                    if (car->isReadyToLeave()) {
+                        shouldExit = true;
+                    }
+                }
+            }
+            
             // Check if ready to leave parking
-            if (car->isReadyToLeave()) {
-                Logger::Info("TrafficSystem: Car finished parking. Generating exit path...");
+            if (shouldExit) {
+                Logger::Info("TrafficSystem: Car exiting (Reason: {}).", 
+                             (car->getType() == Car::CarType::ELECTRIC && car->getBatteryLevel() > 80.0f) ? "Charged" : "Timer");
                 
                 // 1. Context
                 Module* currentFac = const_cast<Module*>(car->getParkedFacility());

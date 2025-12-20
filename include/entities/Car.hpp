@@ -20,13 +20,16 @@ class World;
 
 class Car : public Entity {
 public:
+  enum class CarType { COMBUSTION, ELECTRIC };
+
   /**
    * @brief Constructs a Car entity.
    *
    * @param startPos Initial position.
    * @param world Pointer to the game world for bounds checking.
+   * @param type The type of car (Combustion or Electric).
    */
-  Car(Vector2 startPos, const class World *world, Vector2 initialVelocity = {0, 0});
+  Car(Vector2 startPos, const class World *world, Vector2 initialVelocity, CarType type);
 
   /**
    * @brief Updates the car's physics and logic.
@@ -125,6 +128,25 @@ private:
    *
    * @param wp The target waypoint.
    */
+  /**
+   * @brief Calculates and applies a steering force towards a target.
+   *
+   * @param wp The target waypoint.
+   */
   void seek(const Waypoint& wp);
   std::string textureName;
+
+  // New Members for Traffic Overhaul
+public:
+  CarType getType() const { return type; }
+  
+  void charge(float amount);
+  float getBatteryLevel() const { return batteryLevel; }
+  
+  void setParkingDuration(float duration) { parkingDuration = duration; }
+
+private:
+  CarType type;
+  float batteryLevel = 100.0f; // 0-100%
+  float parkingDuration = 0.0f; // Assigned when parking starts
 };

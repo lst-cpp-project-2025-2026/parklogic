@@ -53,4 +53,15 @@ constexpr float TURN_SLOWDOWN_DIST = 30.0f;    // Start slowing down X meters be
 constexpr float TURN_SLOWDOWN_ANGLE = 0.2f;    // Angle (radians) to consider "sharp" (~11 degrees)
 constexpr float TURN_MIN_SPEED_FACTOR = 0.20f; // Slow down to at least this factor during turns
 } // namespace CarAI
+
+// Battery Constants
+constexpr float BATTERY_LOW_THRESHOLD = 30.0f;
+constexpr float BATTERY_HIGH_THRESHOLD = 70.0f;
+constexpr float BATTERY_EXIT_THRESHOLD = 80.0f; // Chance to leave
+constexpr float BATTERY_FORCE_EXIT_THRESHOLD = 95.0f; // Must leave
+constexpr float CHARGING_RATE = 5.0f; // % per second
+
+// Parking Timers (Seconds)
+constexpr float PARKING_MIN_TIME = 5.0f;
+constexpr float PARKING_MAX_TIME = 15.0f;
 } // namespace Config
