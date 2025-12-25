@@ -41,14 +41,15 @@ void Application::run() {
 }
 
 void Application::update(double dt) {
-  if (window->shouldClose()) {
-    eventBus->publish(WindowCloseEvent{});
-  }
-  inputSystem->update();
   sceneManager->update(dt);
 }
 
 void Application::render() {
+  if (window->shouldClose()) {
+    eventBus->publish(WindowCloseEvent{});
+  }
+  inputSystem->update();
+
   window->beginDrawing();
   sceneManager->render();
 

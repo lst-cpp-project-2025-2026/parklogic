@@ -34,4 +34,5 @@ private:
     bool boundsSet = false;
     
     std::set<int> keysDown;
+    double speedMultiplier = 1.0;
 };

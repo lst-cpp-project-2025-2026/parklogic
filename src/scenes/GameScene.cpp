@@ -147,7 +147,6 @@ void GameScene::handleInput() {
 }
 
 void GameScene::update(double dt) {
-  handleInput();
   gameHUD->update(dt);
 
   if (!isPaused) {
@@ -156,6 +155,8 @@ void GameScene::update(double dt) {
 }
 
 void GameScene::draw() {
+  handleInput();
+  
   // Create a render camera that applies the PPM scaling
   eventBus->publish(BeginCameraEvent{});
   ClearBackground(RAYWHITE);
