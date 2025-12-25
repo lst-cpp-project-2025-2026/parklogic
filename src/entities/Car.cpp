@@ -61,132 +61,137 @@ void Car::update(double dt) { updateWithNeighbors(dt, nullptr); }
  * @param cars Pointer to the list of other cars for collision avoidance.
  */
 void Car::updateWithNeighbors(double dt, const std::vector<std::unique_ptr<Car>> *cars) {
-  // If we are finished exiting (reached map edge or end of path), dispatch should handle cleanup.
-  // But here we just check if path is complete.
-  
-  if (state == CarState::PARKED) {
-      parkingTimer -= (float)dt;
-      return; 
-  }
-
-  // --- Steering Behavior (Seek) ---
-  if (!waypoints.empty()) {
-    Waypoint &currentWp = waypoints.front();
-    seek(currentWp);
-
-    // Check if reached (using waypoint's tolerance)
-    if (Vector2Distance(position, currentWp.position) < currentWp.tolerance) {
-      
-      // If we reached the last waypoint
-      if (waypoints.size() == 1) {
-          // Check if this was a parking spot (Stop at end)
-          if (currentWp.stopAtEnd && state == CarState::DRIVING) {
-              // We arrived at spot.
-              velocity = {0,0};
-              acceleration = {0,0};
-              state = CarState::ALIGNING;
-              targetRotation = currentWp.entryAngle; // The spot's orientation
-          } else if (state == CarState::EXITING) {
-              // Reached exit point (Map edge)
-              // The TrafficSystem should likely handle despawn, but we can flag it?
-              // For now, just stop.
-              velocity = {0,0};
-          }
-      }
-      waypoints.pop_front();
+    // 1. Handle Static States
+    if (state == CarState::PARKED) {
+        parkingTimer -= (float)dt;
+        return; 
     }
-  } else {
-    // No path
-    // If we are ALIGNING, we are sitting in the spot wanting to rotate.
-    if (state == CarState::ALIGNING) {
-        // Smooth Rotation Logic
-        float targetDeg = (targetRotation * RAD2DEG) + 90.0f;
-        float rotSpeed = 120.0f; // degrees per second
-        
-        float diff = targetDeg - currentRotation;
-        while (diff > 180.0f) diff -= 360.0f;
-        while (diff <= -180.0f) diff += 360.0f;
-        
-        if (fabs(diff) < 1.0f) {
-            currentRotation = targetDeg;
-            state = CarState::PARKED;
-            // parkingTimer = 10.0f; // Old fixed value
-            
-            // Random parking duration
-            float minTime = Config::PARKING_MIN_TIME;
-            float maxTime = Config::PARKING_MAX_TIME;
-            // GetRandomValue returns int, so scale up and down
-            parkingTimer = (float)GetRandomValue((int)(minTime * 10), (int)(maxTime * 10)) / 10.0f;
-            
-        } else {
-            float change = rotSpeed * (float)dt;
-            if (change > fabs(diff)) change = fabs(diff);
-            currentRotation += (diff > 0) ? change : -change;
+
+    // 2. Path Following (Seek)
+    if (!waypoints.empty()) {
+        Waypoint &currentWp = waypoints.front();
+        seek(currentWp);
+
+        if (Vector2Distance(position, currentWp.position) < currentWp.tolerance) {
+            if (waypoints.size() == 1) {
+                if (currentWp.stopAtEnd && state == CarState::DRIVING) {
+                    velocity = {0, 0};
+                    acceleration = {0, 0};
+                    state = CarState::ALIGNING;
+                    targetRotation = currentWp.entryAngle;
+                }
+            }
+            waypoints.pop_front();
         }
-        
-    } 
-    else if (state == CarState::DRIVING) {
-        // Just stopped?
-        velocity = Vector2Scale(velocity, 0.95f);
+    } else {
+        if (state == CarState::ALIGNING) {
+            // Smooth Rotation Logic
+            float targetDeg = (targetRotation * RAD2DEG) + 90.0f;
+            float rotSpeed = 120.0f; 
+            float diff = targetDeg - currentRotation;
+            while (diff > 180.0f) diff -= 360.0f;
+            while (diff <= -180.0f) diff += 360.0f;
+            
+            if (fabs(diff) < 1.0f) {
+                currentRotation = targetDeg;
+                state = CarState::PARKED;
+                parkingTimer = (float)GetRandomValue((int)(Config::PARKING_MIN_TIME * 10), (int)(Config::PARKING_MAX_TIME * 10)) / 10.0f;
+            } else {
+                float change = rotSpeed * (float)dt;
+                if (change > fabs(diff)) change = fabs(diff);
+                currentRotation += (diff > 0) ? change : -change;
+            }
+            return; 
+        } else if (state == CarState::DRIVING) {
+            velocity = Vector2Scale(velocity, 0.95f);
+        }
     }
-     else if (state == CarState::EXITING) {
-         // Despawn logic triggers externally
-    }
-  }
-  
-  // Update rotation from velocity if moving
-  if (state != CarState::PARKED && state != CarState::ALIGNING && Vector2Length(velocity) > 0.1f) {
-      currentRotation = atan2f(velocity.y, velocity.x) * RAD2DEG + 90.0f;
-  }
 
-  // --- Collision Avoidance (Braking and Separation) ---
-  // Only apply if moving and not parked
-  if (state == CarState::DRIVING || state == CarState::EXITING) {
-      if (cars) {
+    // 3. Collision Avoidance (Enhanced to prevent Head-On Deadlocks)
+    if (cars && (state == CarState::DRIVING || state == CarState::EXITING)) {
+        // Fallback to rotation-based heading if velocity is zero to prevent getting stuck
+        Vector2 heading = (Vector2Length(velocity) > 0.1f) ? Vector2Normalize(velocity) : 
+                          (Vector2){cosf((currentRotation - 90.0f) * DEG2RAD), sinf((currentRotation - 90.0f) * DEG2RAD)};
+        Vector2 sideVec = {-heading.y, heading.x}; 
+
+        float currentSpeed = Vector2Length(velocity);
+        float lookAheadDist = 5.0f + (currentSpeed * 1.5f); 
+        float laneWidth = 2.2f; 
+
         for (const auto &other : *cars) {
-          if (other.get() == this)
-            continue;
+            if (other.get() == this || other->state == CarState::PARKED) continue;
 
-          float dist = Vector2Distance(position, other->getPosition());
+            Vector2 toOther = Vector2Subtract(other->getPosition(), position);
+            float distSq = Vector2LengthSqr(toOther);
+            if (distSq > lookAheadDist * lookAheadDist) continue;
 
-          // If a car is within the detection range (3.5m), apply avoidance forces
-          if (dist < 3.5f) {
-            // 1. Apply Braking (Force opposite to current velocity)
-            if (Vector2Length(velocity) > 0.5f) {
-              Vector2 heading = Vector2Normalize(velocity);
-              float brakingStrength = 30.0f;
-              Vector2 brakingForce = Vector2Scale(heading, -brakingStrength);
-              applyForce(brakingForce);
+            float dotForward = Vector2DotProduct(toOther, heading);
+            float dotSide = Vector2DotProduct(toOther, sideVec);
+
+            // If car is in the frontal corridor
+            if (dotForward > 0 && dotForward < lookAheadDist && fabsf(dotSide) < laneWidth) {
+                
+                // A. Braking Logic
+                float proximity = 1.0f - (dotForward / lookAheadDist);
+                float brakingForce = 45.0f * (proximity * proximity); 
+                applyForce(Vector2Scale(heading, -brakingForce));
+
+                // B. Deadlock Breaker (The Fix)
+                // If we are facing each other or very slow, nudge to the side
+                Vector2 otherHeading = (Vector2Length(other->velocity) > 0.1f) ? Vector2Normalize(other->velocity) : 
+                                       (Vector2){cosf((other->currentRotation - 90.0f) * DEG2RAD), sinf((other->currentRotation - 90.0f) * DEG2RAD)};
+                
+                float alignment = Vector2DotProduct(heading, otherHeading);
+                if (alignment < -0.3f || currentSpeed < 0.5f) {
+                    // Force a side-step: steer away from their position relative to us
+                    float steerDir = (dotSide > 0) ? -1.0f : 1.0f;
+                    applyForce(Vector2Scale(sideVec, 25.0f * steerDir));
+                }
+
+                // C. Match velocity
+                float otherSpeed = Vector2Length(other->velocity);
+                if (currentSpeed > otherSpeed) {
+                    float matchForce = (currentSpeed - otherSpeed) * 12.0f;
+                    applyForce(Vector2Scale(heading, -matchForce));
+                }
             }
 
-            // 2. Apply Separation (Push the car away from the neighbor)
-            Vector2 push = Vector2Subtract(position, other->getPosition());
-            push = Vector2Normalize(push);
-
-            // Strength of the push increases as distance decreases
-            float pushStrength = 25.0f * (1.0f - (dist / 3.5f));
-            applyForce(Vector2Scale(push, pushStrength));
-          }
+            // Lateral repulsion (keeps cars from overlapping)
+            float dist = sqrtf(distSq);
+            if (dist < 1.8f) { 
+                float pushStrength = 30.0f * (1.0f - (dist / 1.8f));
+                applyForce(Vector2Scale(Vector2Normalize(toOther), -pushStrength));
+            }
         }
-      }
-  }
+    }
 
-  // --- Physics Integration ---
-  if (state != CarState::PARKED && state != CarState::ALIGNING) {
-      // Apply accumulated acceleration to velocity
-      velocity = Vector2Add(velocity, Vector2Scale(acceleration, (float)dt));
+    // 4. Physics Integration
+    if (state != CarState::PARKED && state != CarState::ALIGNING) {
+        applyForce(Vector2Scale(velocity, -0.7f)); // Drag
 
-      // Limit velocity to max speed
-      if (Vector2Length(velocity) > maxSpeed) {
-        velocity = Vector2Scale(Vector2Normalize(velocity), maxSpeed);
-      }
+        velocity = Vector2Add(velocity, Vector2Scale(acceleration, (float)dt));
 
-      // Update Position
-      position = Vector2Add(position, Vector2Scale(velocity, (float)dt));
-  }
+        if (Vector2Length(velocity) > maxSpeed) {
+            velocity = Vector2Scale(Vector2Normalize(velocity), maxSpeed);
+        }
 
-  // Reset acceleration for the next frame
-  acceleration = {0, 0};
+        position = Vector2Add(position, Vector2Scale(velocity, (float)dt));
+
+        // 5. Smooth Rotation (Enhanced responsiveness)
+        float speed = Vector2Length(velocity);
+        if (speed > 0.05f) {
+            float targetRot = atan2f(velocity.y, velocity.x) * RAD2DEG + 90.0f;
+            float angleDiff = targetRot - currentRotation;
+            while (angleDiff > 180) angleDiff -= 360;
+            while (angleDiff < -180) angleDiff += 360;
+            
+            // Rotation speed scales slightly with velocity so cars don't spin in place
+            float rotationFactor = (speed < 1.0f) ? 0.1f : 0.15f;
+            currentRotation += angleDiff * rotationFactor; 
+        }
+    }
+
+    acceleration = {0, 0};
 }
 
 /**
