@@ -4,6 +4,7 @@
 #include "events/GameEvents.hpp"
 #include "config.hpp"
 #include "raylib.h"
+#include <format>
 
 GameHUD::GameHUD(std::shared_ptr<EventBus> bus, EntityManager* entityManager) : eventBus(bus) {
     // Setup UI Elements
@@ -26,6 +27,19 @@ GameHUD::GameHUD(std::shared_ptr<EventBus> bus, EntityManager* entityManager) : 
         speedBtn->setText(buffer);
     });
     uiManager.add(speedBtn);
+
+    // Auto Spawn Button
+    auto autoSpawnBtn = std::make_shared<UIButton>(Vector2{10, 110}, Vector2{150, 40}, "Auto: Off", eventBus);
+    autoSpawnBtn->setOnClick([this]() {
+        eventBus->publish(CycleAutoSpawnLevelEvent{});
+    });
+    uiManager.add(autoSpawnBtn);
+
+    // Subscribe to Auto Spawn Level Changes to update text
+    eventTokens.push_back(eventBus->subscribe<AutoSpawnLevelChangedEvent>([autoSpawnBtn](const AutoSpawnLevelChangedEvent& e) {
+        std::string text = (e.newLevel == 0) ? "Auto: Off" : std::format("Auto: Lvl {}", e.newLevel);
+        autoSpawnBtn->setText(text);
+    }));
 
     // Subscribe to Pause Events to toggle pause text visibility
     eventTokens.push_back(eventBus->subscribe<GamePausedEvent>([this](const GamePausedEvent&) {

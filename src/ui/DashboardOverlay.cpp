@@ -64,7 +64,7 @@ void DashboardOverlay::draw() {
         estimatedHeight = headerHeight + (5 * 25); // ~155
         if (currentSelection.car && currentSelection.car->getType() == Car::CarType::ELECTRIC) estimatedHeight += 25;
     } else if (currentSelection.type == SelectionType::FACILITY) {
-        estimatedHeight = headerHeight + (6 * 25); // ~180
+        estimatedHeight = headerHeight + (8 * 25); // ~230
     } else if (currentSelection.type == SelectionType::SPOT) {
         estimatedHeight = headerHeight + (3 * 25); // ~105
     }

@@ -13,4 +13,9 @@ private:
     std::shared_ptr<EventBus> eventBus;
     const EntityManager& entityManager;
     std::vector<Subscription> eventTokens;
+    
+    int currentSpawnLevel = 0;
+    float spawnTimer = 0.0f;
+    
+    void spawnCar();
 };

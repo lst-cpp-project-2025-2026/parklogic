@@ -48,6 +48,11 @@ struct CameraMoveEvent {
 
 struct SpawnCarEvent {};
 
+struct CycleAutoSpawnLevelEvent {};
+struct AutoSpawnLevelChangedEvent {
+    int newLevel;
+};
+
 struct SpawnCarRequestEvent {};
 
 struct CreateCarEvent {

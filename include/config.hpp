@@ -57,11 +57,22 @@ constexpr float TURN_MIN_SPEED_FACTOR = 0.20f; // Slow down to at least this fac
 // Battery Constants
 constexpr float BATTERY_LOW_THRESHOLD = 30.0f;
 constexpr float BATTERY_HIGH_THRESHOLD = 70.0f;
-constexpr float BATTERY_EXIT_THRESHOLD = 80.0f; // Chance to leave
+constexpr float BATTERY_EXIT_THRESHOLD = 80.0f;       // Chance to leave
 constexpr float BATTERY_FORCE_EXIT_THRESHOLD = 95.0f; // Must leave
-constexpr float CHARGING_RATE = 5.0f; // % per second
+constexpr float CHARGING_RATE = 0.25f;                // % per second
 
 // Parking Timers (Seconds)
-constexpr float PARKING_MIN_TIME = 5.0f;
-constexpr float PARKING_MAX_TIME = 15.0f;
+constexpr float PARKING_MIN_TIME = 120.0f;
+constexpr float PARKING_MAX_TIME = 300.0f;
+
+namespace Spawner {
+// Spawn Intervals in Seconds (Real-time seconds at 1x speed, scaling with speed)
+// Level 0: Off
+// Level 1: Very Slow
+// Level 2: Slow
+// Level 3: Moderate
+// Level 4: Fast
+// Level 5: Very Fast
+constexpr float SPAWN_RATES[] = {0.0f, 5.0f, 4.0f, 3.0f, 2.0f, 1.0f};
+} // namespace Spawner
 } // namespace Config

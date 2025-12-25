@@ -11,6 +11,15 @@
 TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager& em) 
     : eventBus(bus), entityManager(em) {
     
+    // Cycle Auto Spawn Level
+    eventTokens.push_back(eventBus->subscribe<CycleAutoSpawnLevelEvent>([this](const CycleAutoSpawnLevelEvent&) {
+        currentSpawnLevel++;
+        if (currentSpawnLevel > 5) currentSpawnLevel = 0; // 0 to 5
+        
+        Logger::Info("TrafficSystem: Auto-Spawn Level set to {}", currentSpawnLevel);
+        eventBus->publish(AutoSpawnLevelChangedEvent{currentSpawnLevel});
+    }));
+
     // 1. Handle Spawn Request -> Find Position -> Publish CreateCarEvent
     eventTokens.push_back(eventBus->subscribe<SpawnCarRequestEvent>([this](const SpawnCarRequestEvent&) {
         Logger::Info("TrafficSystem: Processing Spawn Request...");
@@ -307,24 +316,35 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
         eventBus->publish(AssignPathEvent{e.car, path});
     }));
     
-    // 3. Handle Game Update -> Check for Cars Ready to Leave AND Remove Exited Cars
+    // 3. Handle Game Update
     eventTokens.push_back(eventBus->subscribe<GameUpdateEvent>([this](const GameUpdateEvent& e) {
+        
+        // Auto-Spawn Logic
+        if (currentSpawnLevel > 0) {
+            spawnTimer += (float)e.dt;
+            float interval = Config::Spawner::SPAWN_RATES[currentSpawnLevel];
+            if (spawnTimer >= interval) {
+                spawnTimer = 0.0f; // Reset or subtract? Subtract to keep cadence? Reset logic is simpler for 'interval' changes.
+                // Let's subtract to avoid drift, but since interval can change, reset might be safer if level changes.
+                // Given the requirement, simple reset is fine.
+                // Actually, if we change levels, timer should probably reset or be clamped.
+                spawnCar();
+            }
+        }
+        
         // We use getCars() directly
         const auto& cars = entityManager.getCars();
         
         // List of cars to remove (pointers)
         std::vector<Car*> carsToRemove;
         
-        // Calculate World Road Boundaries (in Meters)
-        // We do this every frame, but ideally it should be cached or calculated once.
-        // For now, it's fast enough.
+        // Calculate World Road Boundaries
         float minRoadX = std::numeric_limits<float>::max();
         float maxRoadX = std::numeric_limits<float>::lowest();
         
         const auto& modules = entityManager.getModules();
         for (const auto &mod : modules) {
              if (auto *r = dynamic_cast<NormalRoad *>(mod.get())) {
-                 // Road X and Width are in Meters!
                  float x = r->worldPosition.x;
                  float w = r->getWidth();
                  if (x < minRoadX) minRoadX = x;
@@ -332,7 +352,6 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
             }
         }
         
-        // If no roads, defaults
         if (minRoadX == std::numeric_limits<float>::max()) minRoadX = 0;
         if (maxRoadX == std::numeric_limits<float>::lowest()) maxRoadX = 100;
         
@@ -341,9 +360,6 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
             if (!car) continue;
 
             // Check for Arrival (Transition RESERVED -> OCCUPIED)
-            // If car is ALIGNING or PARKED, it has physically arrived at the spot.
-            // We need to ensure the spot reflects this.
-            // We can check if state is RESERVED, then switch to OCCUPIED.
             if (car->getState() == Car::CarState::ALIGNING || car->getState() == Car::CarState::PARKED) {
                  Module* fac =  const_cast<Module*>(car->getParkedFacility());
                  int idx = car->getParkedSpotIndex();
@@ -351,9 +367,8 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
                      Spot s = fac->getSpot(idx);
                      if (s.state == SpotState::RESERVED) {
                          fac->setSpotState(idx, SpotState::OCCUPIED);
-                         auto counts = fac->getSpotCounts();
-                         Logger::Info("TrafficSystem: Spot Occupied. Facility Status: [Free: {}, Reserved: {}, Occupied: {}]", 
-                                      counts.free, counts.reserved, counts.occupied);
+                         // auto counts = fac->getSpotCounts();
+                         // Logger::Info("TrafficSystem: Spot Occupied.");
                      }
                  }
             }
@@ -364,50 +379,26 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
             if (car->getState() == Car::CarState::PARKED) {
                 Module* fac =  const_cast<Module*>(car->getParkedFacility());
                 
-                // Identify if charging
                 bool isChargingSpot = false;
                 if (dynamic_cast<SmallChargingStation*>(fac) || dynamic_cast<LargeChargingStation*>(fac)) {
                     isChargingSpot = true;
                 }
                 
                 if (isChargingSpot && car->getType() == Car::CarType::ELECTRIC) {
-                    // Charging Logic
                     car->charge(Config::CHARGING_RATE * (float)e.dt);
                     float bat = car->getBatteryLevel();
                     
                     if (bat > Config::BATTERY_FORCE_EXIT_THRESHOLD) {
                         shouldExit = true;
                     } else if (bat > Config::BATTERY_EXIT_THRESHOLD) {
-                        // Chance to leave increases with percentage (80 to 95 range)
-                        // normalized 0.0 to 1.0
                         float range = Config::BATTERY_FORCE_EXIT_THRESHOLD - Config::BATTERY_EXIT_THRESHOLD;
                         float excess = bat - Config::BATTERY_EXIT_THRESHOLD;
-                        // float chance = (excess / range) * 0.01f; // Unused
-                        
-                        // Let's just do a simple check: 
-                        // Base chance factor * excess * dt
                         float probability = 0.5f * (excess / range) * (float)e.dt; 
                         if ((float)GetRandomValue(0, 10000)/10000.0f < probability) {
                             shouldExit = true;
                         }
                     }
-                    
-                    // Keep timer high so it doesn't expire by time?
-                    // Or allow time to also expire (e.g. done with coffee but car not full?)
-                    // User said: "at 95% the car leaves if it hasnt" implying battery is the driver.
-                    // But if parkingTimer expires, maybe they leave anyway?
-                    // Let's assume Charging overrides parking timer logic, OR they execute in parallel.
-                    // "if charging level is lower than 30% they go to charging"
-                    // "min parking duration and a max... cars stay somewhere in between"
-                    // This creates a conflict if min parking > charging time.
-                    // Let's allow `shouldExit` to trigger if EITHER condition is met?
-                    // Or Charging logic is exclusive for charging stations.
-                    // "electric cars... charging stations... charge level increases... above 80% chance to leave"
-                    // This implies the standard parking timer might NOT apply to charging stations.
-                    // I will strictly use battery logic for charging stations.
-                    
                 } else {
-                    // Regular Parking (Combustion or Electric in Parking Lot)
                     if (car->isReadyToLeave()) {
                         shouldExit = true;
                     }
@@ -416,10 +407,9 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
             
             // Check if ready to leave parking
             if (shouldExit) {
-                Logger::Info("TrafficSystem: Car exiting (Reason: {}).", 
-                             (car->getType() == Car::CarType::ELECTRIC && car->getBatteryLevel() > 80.0f) ? "Charged" : "Timer");
+                // ... (Existing Exit Logic) ...
+                Logger::Info("TrafficSystem: Car exiting.");
                 
-                // 1. Context
                 Module* currentFac = const_cast<Module*>(car->getParkedFacility());
                 Spot currentSpot = car->getParkedSpot();
                 int idx = car->getParkedSpotIndex();
@@ -429,71 +419,31 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
                      continue;
                 }
                 
-                // Free the spot on exit!
                 if (idx != -1) {
                     currentFac->setSpotState(idx, SpotState::FREE);
-                    auto counts = currentFac->getSpotCounts();
-                    Logger::Info("TrafficSystem: Spot Freed. Facility Status: [Free: {}, Reserved: {}, Occupied: {}]", 
-                                 counts.free, counts.reserved, counts.occupied);
                 }
                 
-                // 2. Decide Direction based on Priority
                 bool exitRight = false;
-                
                 if (car->getPriority() == Car::Priority::PRIORITY_DISTANCE) {
-                    // Distance Priority: Leave from same direction as arrival
-                    // enteredFromLeft means came FROM Left.
-                    // To leave from LEFT, we want exitRight = false.
-                    // To leave from RIGHT, we want exitRight = true.
-                    // Wait, if enteredFromLeft (spawned on leftRoad, moving right), 
-                    // user says: "leave from the first direction that they came from"
-                    // "if a car ... enters from the right, it will leave from the right"
-                    // Right means spawned on RightRoad (moving left). 
-                    // enteredFromLeft is false.
-                    // So if enteredFromLeft == false (Right), we want exitRight = true.
-                    // If enteredFromLeft == true (Left), we want exitRight = false.
                     exitRight = !car->getEnteredFromLeft();
                 } else {
-                    // Others: Random
                      exitRight = (GetRandomValue(0, 1) == 1);
                 }
                 
-                // 3. Determine Final Destination X
-                // Drive OFF screen.
-                // If exiting Right, go to maxRoadX + 2.0m
-                // If exiting Left, go to minRoadX - 2.0m (start of road is minX)
                 float finalX = exitRight ? (maxRoadX + 2.0f) : (minRoadX - 2.0f);
-                
-                // 4. Generate Path
                 std::vector<Waypoint> path = PathPlanner::GenerateExitPath(car, currentFac, currentSpot, exitRight, finalX);
                 
-                // 5. Assign
                 car->setPath(path);
                 car->setState(Car::CarState::EXITING);
-                Logger::Info("TrafficSystem: Exit path assigned. Exiting {} (Pri: {}, FromLeft: {})", 
-                             exitRight ? "RIGHT" : "LEFT", (int)car->getPriority(), car->getEnteredFromLeft());
             }
             
             // Check if finished exiting
             if (car->getState() == Car::CarState::EXITING && car->hasArrived()) {
-                // Car has reached the end of the exit path (off-screen)
                 carsToRemove.push_back(car);
-                Logger::Info("TrafficSystem: Car has left the world. Despawning...");
             }
         }
         
-        // Remove cars
         for (Car* c : carsToRemove) {
-            // Need a const_cast or entityManager needs to accept Car* (it does)
-            // But entityManager is const in this lambda context?
-            // Member variable: const EntityManager& entityManager
-            // We need a non-const EntityManager to remove.
-            // The constructor takes `const EntityManager& em`.
-            // Use const_cast or fix the design?
-            // Fix design: EntityManager shouldn't be const if we modify it.
-            // TrafficSystem owns eventBus but only has reference to EM.
-            // Actually, TrafficSystem is a system. It should modify components.
-            // We should cast away constness for now as we know it's the main EM.
             const_cast<EntityManager&>(entityManager).removeCar(c);
         }
     }));
@@ -501,4 +451,63 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
 
 TrafficSystem::~TrafficSystem() {
     eventTokens.clear();
+}
+
+void TrafficSystem::spawnCar() {
+    Logger::Info("TrafficSystem: Processing Spawn Logic...");
+    
+    const auto& modules = entityManager.getModules();
+    if (modules.empty()) return;
+
+    // Find Leftmost and Rightmost Roads
+    const Module* leftRoad = nullptr;
+    const Module* rightRoad = nullptr;
+    float minX = std::numeric_limits<float>::max();
+    float maxRightX = std::numeric_limits<float>::lowest();
+
+    for (const auto &mod : modules) {
+         if (auto *r = dynamic_cast<NormalRoad *>(mod.get())) {
+             float x = r->worldPosition.x;
+             float w = r->getWidth();
+             
+             if (x < minX) {
+                 minX = x;
+                 leftRoad = r;
+             }
+             
+             if (x + w > maxRightX) {
+                 maxRightX = x + w;
+                 rightRoad = r;
+             }
+        }
+    }
+    
+    if (!leftRoad && !rightRoad) return;
+
+    bool spawnLeft = (GetRandomValue(0, 1) == 0);
+    if (!leftRoad) spawnLeft = false;
+    if (!rightRoad) spawnLeft = true;
+    
+    Vector2 spawnPos = {0, 0};
+    Vector2 spawnVel = {0, 0};
+    float speed = 15.0f;
+    float pixelsPerMeter = static_cast<float>(Config::ART_PIXELS_PER_METER);
+
+    if (spawnLeft) {
+        float laneOffset = (float)Config::LANE_OFFSET_DOWN / pixelsPerMeter;
+        spawnPos.x = leftRoad->worldPosition.x; 
+        spawnPos.y = leftRoad->worldPosition.y + laneOffset;
+        spawnVel = {speed, 0};
+    } else {
+        float laneOffset = (float)Config::LANE_OFFSET_UP / pixelsPerMeter;
+        spawnPos.x = rightRoad->worldPosition.x + rightRoad->getWidth();
+        spawnPos.y = rightRoad->worldPosition.y + laneOffset;
+        spawnVel = {-speed, 0};
+    }
+    
+    int carType = (GetRandomValue(0, 1) == 0) ? 0 : 1; 
+    int priority = (GetRandomValue(0, 1) == 0) ? 0 : 1;
+    bool enteredFromLeft = spawnLeft;
+
+    eventBus->publish(CreateCarEvent{spawnPos, spawnVel, carType, priority, enteredFromLeft});
 }
