@@ -39,6 +39,9 @@ EntityManager::EntityManager(std::shared_ptr<EventBus> bus) : eventBus(bus) {
         if (!world) return;
         
         auto car = std::make_unique<Car>(e.position, world.get(), e.velocity, static_cast<Car::CarType>(e.carType));
+        car->setPriority(static_cast<Car::Priority>(e.priority));
+        car->setEnteredFromLeft(e.enteredFromLeft);
+        
         Car *carPtr = car.get();
         this->addCar(std::move(car));
 

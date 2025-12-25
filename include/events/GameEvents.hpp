@@ -54,7 +54,9 @@ struct SpawnCarRequestEvent {};
 struct CreateCarEvent {
   Vector2 position;
   Vector2 velocity; // Initial velocity (sets heading)
-  int carType; // 0: Combustion, 1: Electric (Int for now to avoid circular dependency, or forward declare)
+  int carType; // 0: Combustion, 1: Electric
+  int priority; // 0: Price, 1: Distance
+  bool enteredFromLeft;
 };
 
 struct CarSpawnedEvent {

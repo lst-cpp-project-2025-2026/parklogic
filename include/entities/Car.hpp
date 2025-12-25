@@ -138,6 +138,14 @@ private:
 
   // New Members for Traffic Overhaul
 public:
+  enum class Priority { PRIORITY_PRICE, PRIORITY_DISTANCE }; // Renamed from PRICE/DISTANCE to avoid potential macros? No, just good practice.
+  
+  Priority getPriority() const { return priority; }
+  void setPriority(Priority p) { priority = p; }
+  
+  bool getEnteredFromLeft() const { return enteredFromLeft; }
+  void setEnteredFromLeft(bool left) { enteredFromLeft = left; }
+  
   CarType getType() const { return type; }
   
   void charge(float amount);
@@ -147,6 +155,8 @@ public:
 
 private:
   CarType type;
+  Priority priority = Priority::PRIORITY_DISTANCE; // Default
+  bool enteredFromLeft = true; // Default
   float batteryLevel = 100.0f; // 0-100%
   float parkingDuration = 0.0f; // Assigned when parking starts
 };

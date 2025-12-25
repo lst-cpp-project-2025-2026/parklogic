@@ -30,17 +30,36 @@ struct Spot {
     float orientation; // 0=Right, PI/2=Down, PI=Left, 3PI/2=Up (in radians)
     int id;
     SpotState state = SpotState::FREE;
+    float price = 0.0f; // NEW: Price per usage
 };
 
 class Module {
 public:
-  Module(float w, float h) : width(w), height(h) {}
+  Module(float w, float h) : width(w), height(h) {
+      // Base random multiplier for this facility (1.0 to 3.0)
+      // This makes some facilities "posh" and others "cheap"
+      priceMultiplier = (float)GetRandomValue(10, 30) / 10.0f; 
+  }
   virtual ~Module() = default;
 
   float getWidth() const { return width; }
   float getHeight() const { return height; }
+  
+  float getPriceMultiplier() const { return priceMultiplier; }
+  void setPriceMultiplier(float m) { priceMultiplier = m; }
+  
+  // Helper to init spots with price
+  void assignRandomPricesToSpots(float baseSpotPrice, float variance) {
+      for(auto& spot : spots) {
+          // Spot Price = Base * FacilityMultiplier + RandomVariance
+          float r = (float)GetRandomValue(-(int)(variance*10), (int)(variance*10)) / 10.0f;
+          spot.price = (baseSpotPrice * priceMultiplier) + r;
+          if (spot.price < 0.5f) spot.price = 0.5f; // Min price
+      }
+  }
 
   const std::vector<AttachmentPoint> &getAttachmentPoints() const { return attachmentPoints; }
+
 
   // Position in the world (set during generation)
   Vector2 worldPosition = {0, 0};
@@ -93,6 +112,7 @@ public:
 protected:
   float width;
   float height;
+  float priceMultiplier = 1.0f; // NEW
   std::vector<AttachmentPoint> attachmentPoints;
   std::vector<Waypoint> localWaypoints; // Stored relative to module top-left
   std::vector<Spot> spots; // Parking/Charging spots

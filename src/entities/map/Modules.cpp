@@ -258,6 +258,9 @@ SmallParking::SmallParking(bool isTop) : Module(P2M(274), P2M(330)), isTop(isTop
       for(float x : xsDown) spots.push_back({{P2M(x), yDown}, PI/2, 0}); // Angle PI/2 = DOWN
   }
   addWaypoint({P2M(218), height / 2.0f});
+  
+  // Base Price: $2.0, Variance $0.5
+  assignRandomPricesToSpots(2.0f, 0.5f);
 }
 
 void SmallParking::draw() const {
@@ -357,6 +360,14 @@ SmallChargingStation::SmallChargingStation(bool isTop) : Module(P2M(219), P2M(16
       // Fix: Move closer to entrance (Height * 0.2)
       addWaypoint({P2M(163), height * 0.15f});
   }
+  
+  // Charging is more expensive (2-5x more than parking)
+  // We can boost the multiplier OR the base price.
+  // Logic: "electric charging facilities should generally be 2-5 times more expensive"
+  // Let's boost the base price significantly.
+  // Base Price: $8.0, Variance $1.0
+  priceMultiplier *= 1.5f; // Add extra multiplier boost for being a charging station module?
+  assignRandomPricesToSpots(8.0f, 1.0f);
 }
 
 void SmallChargingStation::draw() const {
@@ -396,6 +407,10 @@ LargeChargingStation::LargeChargingStation(bool isTop) : Module(P2M(274), P2M(33
       for(float x : xsDown) spots.push_back({{P2M(x), yDown}, PI/2, 0});
   }
   addWaypoint({P2M(218), height / 2.0f});
+
+  // Base Price: $10.0, Variance $2.0
+  priceMultiplier *= 1.5f;
+  assignRandomPricesToSpots(10.0f, 2.0f);
 }
 
 void LargeChargingStation::draw() const {

@@ -5,7 +5,8 @@
 #include "entities/map/Modules.hpp"
 #include "config.hpp" // Added for lane offsets
 
-#include "entities/Car.hpp" // Added include
+#include "entities/Car.hpp" 
+#include "raymath.h"
 
 TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager& em) 
     : eventBus(bus), entityManager(em) {
@@ -80,14 +81,22 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
             spawnPos.y = rightRoad->worldPosition.y + laneOffset;
             
             spawnVel = {-speed, 0};
-             Logger::Info("Spawning Car RIGHT at ({}, {})", spawnPos.x, spawnPos.y);
         }
-
         // Random Car Type
-        // 50% Combustion, 50% Electric (Configurable later)
-        int carType = (GetRandomValue(0, 1) == 0) ? 0 : 1; // 0: Combustion, 1: Electric
+        // 50% Combustion, 50% Electric
+        int carType = (GetRandomValue(0, 1) == 0) ? 0 : 1; 
 
-        eventBus->publish(CreateCarEvent{spawnPos, spawnVel, carType});
+        // Random Priority
+        // 50% Price, 50% Distance
+        int priority = (GetRandomValue(0, 1) == 0) ? 0 : 1;
+        
+        // Entry Side is determined by spawnLeft
+        // spawnLeft means coming FROM Left (driving Right?) 
+        // Logic: if spawnLeft is true, spawnPos is on leftRoad. Velocity is positive X (Right).
+        // So it entered from LEFT.
+        bool enteredFromLeft = spawnLeft;
+
+        eventBus->publish(CreateCarEvent{spawnPos, spawnVel, carType, priority, enteredFromLeft});
     }));
 
     // 2. Handle Car Spawned -> Calculate Path -> Publish AssignPathEvent
@@ -160,17 +169,89 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
             }
         }
 
-        // Pick random facility
-        int idx = GetRandomValue(0, (int)facilities.size() - 1);
-        Module *targetFac = facilities[idx];
+        if (facilities.empty()) {
+            Logger::Error("TrafficSystem: No suitable facilities found.");
+            return;
+        }
+
+        Module *targetFac = nullptr;
+        int bestSpotIndex = -1;
+        float bestMetric = std::numeric_limits<float>::max(); // Price or Distance
+
+        Car::Priority priority = e.car->getPriority();
+        Vector2 carPos = e.car->getPosition();
+
+        Logger::Info("TrafficSystem: Selecting facility for Car (Pri: {})", (int)priority);
+
+        if (priority == Car::Priority::PRIORITY_DISTANCE) {
+            // Closest Facility with Available Spots
+            for (auto* fac : facilities) {
+                // Check if full
+                if (fac->getSpotCounts().free == 0) continue;
+                
+                // Metric: Distance (Manhattan or Euclidean? Euclidean is fine)
+                // Use WorldPosition X primarily? User said: "closest facility to the entrace... that's also available"
+                // e.car->getPosition() is the spawn point right now.
+                float dist = Vector2Distance(carPos, fac->worldPosition);
+                
+                if (dist < bestMetric) {
+                    // Check if actually has valid spot index
+                    int idx = fac->getRandomSpotIndex(); // Random valid spot in this facility
+                    if (idx != -1) {
+                         bestMetric = dist;
+                         targetFac = fac;
+                         bestSpotIndex = idx;
+                    }
+                }
+            }
+        } else {
+             // Price Priority: Cheapest Spot globally
+             // Revised Approach for Price:
+             // 1. Iterate all facilities.
+             // 2. For each facility, try to find a free spot.
+             // 3. Finding the cheapest FACILITY is 90% of the battle.
+             //    We compare one random available spot from each facility.
+             
+             // Revised Approach for Price:
+             // 1. Iterate all facilities.
+             // 2. For each facility, try to find a free spot.
+             // 3. Since we can't iterate all spots easily, let's trust `getRandomSpotIndex`.
+             //    It returns a random FREE spot.
+             //    We compare the price of these candidates.
+             //    This minimizes facilities interaction but might miss a slightly cheaper spot IN the same facility.
+             //    But variance is small ($0.5). Facility diff is Large ($10 vs $2).
+             //    So finding cheapest FACILITY is 90% of the battle.
+             
+             for (auto* fac : facilities) {
+                 int idx = fac->getRandomSpotIndex();
+                 if (idx == -1) continue; // Full
+                 
+                 Spot s = fac->getSpot(idx);
+                 if (s.price < bestMetric) {
+                     bestMetric = s.price;
+                     targetFac = fac;
+                     bestSpotIndex = idx;
+                 }
+             }
+        }
+
+        if (!targetFac || bestSpotIndex == -1) {
+             // Fallback: Random
+             if (!facilities.empty()) {
+                targetFac = facilities[GetRandomValue(0, (int)facilities.size() - 1)];
+                bestSpotIndex = targetFac->getRandomSpotIndex();
+             }
+        }
 
         // --- New Spot-Based Pathfinding (via PathPlanner) ---
         
         // 1. Determine Spot
-        int spotIndex = targetFac->getRandomSpotIndex();
+        int spotIndex = bestSpotIndex;
+        // If still -1, try one more time
+        if (targetFac && spotIndex == -1) spotIndex = targetFac->getRandomSpotIndex();
         
         // Handle "Through Traffic" (No spots available)
-        if (spotIndex == -1) {
+        if (spotIndex == -1 || !targetFac) {
              Logger::Info("TrafficSystem: Facility full (Free: 0). Car passing through.");
              
              // Calculate Map Bounds (Duplicated logic for now, or could act as if exiting)
@@ -356,8 +437,26 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
                                  counts.free, counts.reserved, counts.occupied);
                 }
                 
-                // 2. Decide Direction
-                bool exitRight = (GetRandomValue(0, 1) == 1);
+                // 2. Decide Direction based on Priority
+                bool exitRight = false;
+                
+                if (car->getPriority() == Car::Priority::PRIORITY_DISTANCE) {
+                    // Distance Priority: Leave from same direction as arrival
+                    // enteredFromLeft means came FROM Left.
+                    // To leave from LEFT, we want exitRight = false.
+                    // To leave from RIGHT, we want exitRight = true.
+                    // Wait, if enteredFromLeft (spawned on leftRoad, moving right), 
+                    // user says: "leave from the first direction that they came from"
+                    // "if a car ... enters from the right, it will leave from the right"
+                    // Right means spawned on RightRoad (moving left). 
+                    // enteredFromLeft is false.
+                    // So if enteredFromLeft == false (Right), we want exitRight = true.
+                    // If enteredFromLeft == true (Left), we want exitRight = false.
+                    exitRight = !car->getEnteredFromLeft();
+                } else {
+                    // Others: Random
+                     exitRight = (GetRandomValue(0, 1) == 1);
+                }
                 
                 // 3. Determine Final Destination X
                 // Drive OFF screen.
@@ -371,7 +470,8 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager&
                 // 5. Assign
                 car->setPath(path);
                 car->setState(Car::CarState::EXITING);
-                Logger::Info("TrafficSystem: Exit path assigned. Exiting {}", exitRight ? "RIGHT" : "LEFT");
+                Logger::Info("TrafficSystem: Exit path assigned. Exiting {} (Pri: {}, FromLeft: {})", 
+                             exitRight ? "RIGHT" : "LEFT", (int)car->getPriority(), car->getEnteredFromLeft());
             }
             
             // Check if finished exiting
