@@ -1,9 +1,4 @@
 #pragma once
-
-/**
- * @file Waypoint.hpp
- * @brief Defines the Waypoint structure for pathfinding.
- */
 #include "raylib.h"
 
 /**

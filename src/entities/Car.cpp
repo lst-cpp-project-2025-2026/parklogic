@@ -55,7 +55,7 @@ void Car::setParkingContext(const Module *fac, const Spot &spot, int spotIndex) 
 }
 
 /**
- * @brief Updates the car's state based on time elapsed, without considering neighbors.
+ * @brief Updates the car's state based on time elapsed, without considering neighbors. Mostly useless.
  *
  * @param dt Time elapsed since the last update.
  */

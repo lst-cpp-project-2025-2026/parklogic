@@ -3,16 +3,10 @@
 #include "core/AssetManager.hpp"
 #include "raylib.h"
 #include "raymath.h"
-#include <iostream>
 
 // --- Helper Conversion ---
 
 static float P2M(float artPixels) {
-  // 3 resolution pixels per art pixel
-  // 7 art pixels per meter
-  // So 21 resolution pixels per meter...
-  //
-  // But wait, the config says:
   // ART_PIXELS_PER_METER = 7
   // So if input is art pixels, we just divide by 7.
   return artPixels / static_cast<float>(Config::ART_PIXELS_PER_METER);
@@ -342,6 +336,9 @@ LargeParking::LargeParking(bool isTop) : Module(P2M(436), P2M(363)), isTop(isTop
       spots.push_back({{P2M(x), yDown}, PI / 2, 0});
   }
   addWaypoint({P2M(218), height / 2.0f});
+
+  // Base Price: $1.0, Variance $0.5
+  assignRandomPricesToSpots(1.0f, 0.5f);
 }
 
 void LargeParking::draw() const {
@@ -390,12 +387,9 @@ SmallChargingStation::SmallChargingStation(bool isTop) : Module(P2M(219), P2M(16
   }
 
   // Charging is more expensive (2-5x more than parking)
-  // We can boost the multiplier OR the base price.
-  // Logic: "electric charging facilities should generally be 2-5 times more expensive"
-  // Let's boost the base price significantly.
-  // Base Price: $8.0, Variance $1.0
-  priceMultiplier *= 1.5f; // Add extra multiplier boost for being a charging station module?
-  assignRandomPricesToSpots(8.0f, 1.0f);
+  // Base Price: $10.0, Variance $1.0
+  // priceMultiplier *= 1.5f; // Add extra multiplier boost for being a charging station module?
+  assignRandomPricesToSpots(10.0f, 1.0f);
 }
 
 void SmallChargingStation::draw() const {
@@ -440,9 +434,9 @@ LargeChargingStation::LargeChargingStation(bool isTop) : Module(P2M(274), P2M(33
   }
   addWaypoint({P2M(218), height / 2.0f});
 
-  // Base Price: $10.0, Variance $2.0
+  // Base Price: $8.0, Variance $2.0
   priceMultiplier *= 1.5f;
-  assignRandomPricesToSpots(10.0f, 2.0f);
+  assignRandomPricesToSpots(8.0f, 2.0f);
 }
 
 void LargeChargingStation::draw() const {
