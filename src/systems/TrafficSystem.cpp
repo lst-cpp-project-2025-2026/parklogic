@@ -227,13 +227,6 @@ TrafficSystem::TrafficSystem(std::shared_ptr<EventBus> bus, const EntityManager 
         }
       }
     } else {
-      // Price Priority: Cheapest Spot globally
-      // Revised Approach for Price:
-      // 1. Iterate all facilities.
-      // 2. For each facility, try to find a free spot.
-      // 3. Finding the cheapest FACILITY is 90% of the battle.
-      //    We compare one random available spot from each facility.
-
       // Revised Approach for Price:
       // 1. Iterate all facilities.
       // 2. For each facility, try to find a free spot.

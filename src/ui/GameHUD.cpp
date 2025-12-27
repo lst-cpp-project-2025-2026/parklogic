@@ -20,16 +20,19 @@ GameHUD::GameHUD(std::shared_ptr<EventBus> bus, EntityManager *entityManager) : 
   uiManager.add(spawnBtn);
 
   auto speedBtn = std::make_shared<UIButton>(Vector2{10, 60}, Vector2{150, 40}, "Speed: 1.0x", eventBus);
-  speedBtn->setOnClick([this, speedBtn]() {
+  std::weak_ptr<UIButton> weakSpeedBtn = speedBtn;
+  speedBtn->setOnClick([this, weakSpeedBtn]() {
     currentSpeed += 0.5;
     if (currentSpeed > 5.0) {
       currentSpeed = 1.0;
     }
     eventBus->publish(SimulationSpeedChangedEvent{currentSpeed});
     // Update button text
-    char buffer[32];
-    snprintf(buffer, sizeof(buffer), "Speed: %.1fx", currentSpeed);
-    speedBtn->setText(buffer);
+    if (auto btn = weakSpeedBtn.lock()) {
+      char buffer[32];
+      snprintf(buffer, sizeof(buffer), "Speed: %.1fx", currentSpeed);
+      btn->setText(buffer);
+    }
   });
   uiManager.add(speedBtn);
 
